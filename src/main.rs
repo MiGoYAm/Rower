@@ -1,3 +1,4 @@
+use futures::FutureExt;
 use protocol::codec::minecraft_codec::Connection;
 use protocol::codec::registry::{STATUS_REGISTRY, LOGIN_REGISTRY, PLAY_REGISTRY};
 use protocol::packet::NextPacket;
@@ -30,20 +31,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn handle(socket: TcpStream) {
-    let mut connection = Connection::new(socket, Direction::Serverbound);
-
     let result: Result<(), Box<dyn Error>> = async move {
+        let mut connection = Connection::new(socket, Direction::Serverbound);
         let handshake: Handshake = connection.read_packet().await?;
 
         connection.protocol = handshake.protocol;
 
         match handshake.state {
-            STATUS => handle_status(&mut connection).await?,
-            LOGIN => handle_login(&mut connection).await?,
+            STATUS => handle_status(connection).await?,
+            LOGIN => handle_login(connection).await?,
             _ => { /* error handle*/ }
         }
 
-        connection.shutdown().await?;
+        //connection.shutdown().await?;
         Ok(())
     }
     .await;
@@ -53,7 +53,7 @@ async fn handle(socket: TcpStream) {
     }
 }
 
-async fn handle_status(connection: &mut Connection) -> Result<(), Box<dyn Error>> {
+async fn handle_status(mut connection: Connection) -> Result<(), Box<dyn Error>> {
     connection.set_registry(&STATUS_REGISTRY);
 
     connection.read_packet::<StatusRequest>().await?;
@@ -76,7 +76,7 @@ async fn handle_status(connection: &mut Connection) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-async fn handle_login(client: &mut Connection) -> Result<(), Box<dyn Error>> {
+async fn handle_login(mut client: Connection) -> Result<(), Box<dyn Error>> {
     client.set_registry(&LOGIN_REGISTRY);
     let login_start: LoginStart = client.read_packet().await?;
 
@@ -102,26 +102,34 @@ async fn handle_login(client: &mut Connection) -> Result<(), Box<dyn Error>> {
 
     client.write_packet(login_success).await?;
 
-    //println!("serwer");
     let mut server = handle_join(client.protocol).await?;
     
     client.set_registry(&PLAY_REGISTRY);
     server.set_registry(&PLAY_REGISTRY);
 
-    /*
     loop {
+        let mut server_packet = None;
+        let mut client_packet = None;
+
         tokio::select! {
-            Ok(NextPacket::RawPacket(p)) = server.next_packet() => {
-                client.write_raw_packet(p).await;
+            Ok(NextPacket::RawPacket(p)) = server.next_packet()=> {
+                client_packet = Some(p);
+                //client.write_raw_packet(p).await;
             },
             Ok(NextPacket::RawPacket(p)) = client.next_packet() => {
-                server.write_raw_packet(p).await;
+                server_packet = Some(p);
+                //server.write_raw_packet(p).await;
             },
         };
-    }
-    */
 
-    Ok(())
+        if let Some(p) = server_packet {
+            server.write_raw_packet(p).await?;
+        } else if let Some(p) = client_packet {
+            client.write_raw_packet(p).await?;
+        }
+    }
+
+    //Ok(())
 }
 
 async fn handle_join(version: i32) -> Result<Connection, Box<dyn Error>> {
@@ -134,16 +142,17 @@ async fn handle_join(version: i32) -> Result<Connection, Box<dyn Error>> {
         port: 25566, 
         state: LOGIN 
     };
+    server.put_packet(handshake).await?;
+
     server.set_registry(&LOGIN_REGISTRY);
     let login_start = LoginStart {
         username: "tenteges".to_string(),
         uuid: None,
     };
-    server.put_packet(handshake).await?;
     server.write_packet(login_start).await?;
 
     match server.next_packet().await? {
-        NextPacket::LoginSuccess(p) => println!("loginsuccess"),
+        NextPacket::LoginSuccess(p) => {}
         NextPacket::SetCompression(p) => {},
         NextPacket::Disconnect(p) => println!("disconnect"),
         _ => {}

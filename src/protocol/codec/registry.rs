@@ -25,7 +25,7 @@ pub static LOGIN_REGISTRY: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
     registry.insert::<Disconnect>(|b, v| NextPacket::Disconnect(Lazy::new(b, v)), Id::Clientbound(0x00));
     registry.insert::<LoginStart>(|b, v| NextPacket::Handshake(Lazy::new(b, v)), Id::Serverbound(0x00));
-    registry.insert::<LoginSuccess>(|b, v| NextPacket::Ping(Lazy::new(b, v)), Id::Clientbound(0x02));
+    registry.insert::<LoginSuccess>(|b, v| NextPacket::LoginSuccess(Lazy::new(b, v)), Id::Clientbound(0x02));
     registry.insert::<SetCompression>(|b, v| NextPacket::SetCompression(Lazy::new(b, v)), Id::Clientbound(0x03));
     registry
 });
