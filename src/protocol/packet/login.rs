@@ -1,3 +1,4 @@
+use crate::protocol::ProtocolVersion;
 use crate::protocol::util::{get_string, put_byte_array, put_str, self, get_varint, put_varint};
 use crate::TextComponent;
 use bytes::{Buf, BufMut, BytesMut};
@@ -12,7 +13,7 @@ pub struct LoginStart {
 }
 
 impl Packet for LoginStart {
-    fn from_bytes(buf: &mut BytesMut, _: i32) -> Result<Self, Box<dyn Error>>
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>>
     where
         Self: Sized,
     {
@@ -22,7 +23,7 @@ impl Packet for LoginStart {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: i32) {
+    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
         util::put_string(buf, &self.username);
         match self.uuid {
             Some(uuid) => buf.put_u128(uuid.as_u128()),
@@ -38,7 +39,7 @@ pub struct LoginSuccess {
 
 impl Packet for LoginSuccess {
 
-    fn from_bytes(buf: &mut BytesMut, _: i32) -> Result<Self, Box<dyn Error>>
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>>
     where
         Self: Sized 
     {
@@ -48,7 +49,7 @@ impl Packet for LoginSuccess {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: i32) {
+    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
         buf.put_u128(self.uuid.as_u128());
         //put_string(buf, &self.username);
         put_str(buf, &self.username);
@@ -63,7 +64,7 @@ pub struct Disconnect {
 
 impl Packet for Disconnect {
     
-    fn from_bytes(buf: &mut BytesMut, _: i32) -> Result<Self, Box<dyn Error>>
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>>
     where Self: Sized {
         let binding = get_string(buf, 262144)?;
         let s = binding.as_str();
@@ -72,8 +73,8 @@ impl Packet for Disconnect {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: i32) {
-        put_byte_array(buf, serde_json::to_vec(&self.reason).unwrap())
+    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+        put_byte_array(buf, &serde_json::to_vec(&self.reason).unwrap())
     }
 }
 
@@ -82,12 +83,12 @@ pub struct SetCompression {
 }
 
 impl Packet for SetCompression {
-    fn from_bytes(buf: &mut BytesMut, _: i32) -> Result<Self, Box<dyn Error>>
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>>
     where Self: Sized {
         Ok(Self { threshold: get_varint(buf)? })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: i32) {
-        put_varint(buf, self.threshold)
+    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+        put_varint(buf, self.threshold as u32)
     }
 }

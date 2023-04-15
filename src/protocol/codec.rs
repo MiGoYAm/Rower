@@ -1,4 +1,7 @@
 pub mod minecraft_codec;
-mod error;
 pub mod registry;
-mod compression_codec;
+mod error;
+mod decoder;
+mod util;
+mod encoder;
+pub mod reg;

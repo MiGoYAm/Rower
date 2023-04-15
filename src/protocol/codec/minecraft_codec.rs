@@ -1,43 +1,50 @@
-use std::{error::Error};
+use std::{error::Error, io::ErrorKind};
 
 use bytes::{BytesMut, Buf, BufMut};
 use futures::{SinkExt, StreamExt};
-use tokio::{net::TcpStream, io::AsyncWriteExt};
-use tokio_util::codec::{Decoder, Encoder, Framed};
+use tokio::net::{TcpStream, tcp::{ReadHalf, WriteHalf}};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::protocol::{packet::{NextPacket, Packet, RawPacket}, Direction};
+use crate::protocol::{packet::{NextPacket, Packet, RawPacket}, Direction, ProtocolVersion};
 
-use super::{error::{FrameToobig, VarintTooBig, ConnectionClosed}, registry::{Registry, HANDSHAKE_REGISTRY, StateRegistry}};
+use super::{decoder::MinecraftDecoder, encoder::{MinecraftEncoder, MinecraftEncoderComp}, reg::{ProtocolRegistry, HANDSHAKE_REG, StateRegistry}};
 
-pub const MAX_PACKET_SIZE: usize = 2097151;
 
-pub struct Connection {
-    pub protocol: i32,
+pub struct Connection<'a> {
+    pub protocol: ProtocolVersion,
     direction: Direction,
-    send_registry: &'static Registry,
-    receive_registry: &'static Registry,
-    codec: Framed<TcpStream, MinecraftCodec>
+
+    send_registry: &'static ProtocolRegistry,
+    receive_registry: &'static ProtocolRegistry,
+    
+    decoder: FramedRead<ReadHalf<'a>, MinecraftDecoder>,
+    encoder: FramedWrite<WriteHalf<'a>, MinecraftEncoder>,
 }
 
-impl Connection {
-    pub fn new(stream: TcpStream, direction: Direction) -> Self {
-        let (receive_registry, send_registry) = HANDSHAKE_REGISTRY.get_registry(&direction);
+impl<'a> Connection<'a> {
+    pub fn new(stream: &'a mut TcpStream, direction: Direction) -> Self {
+        let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction, &ProtocolVersion::Unknown);
+        let (reader, writer) = stream.split();
+
         Self { 
-            protocol: 0,
+            protocol: ProtocolVersion::Unknown,
             direction,
-            receive_registry,
+
             send_registry,
-            codec: Framed::new(stream, MinecraftCodec::new())
+            receive_registry,
+
+            decoder: FramedRead::new(reader, MinecraftDecoder::new()),
+            encoder: FramedWrite::new(writer, MinecraftEncoder::new()),
         }
     }
 
     pub fn set_registry(&mut self, registry: &'static StateRegistry) {
-        let (receive_registry, send_registry) = registry.get_registry(&self.direction);
+        let (receive_registry, send_registry) = registry.get_registry(&self.direction, &self.protocol);
         self.receive_registry = receive_registry;
         self.send_registry = send_registry;
     }
 
-    pub async fn next_packet(&mut self) -> Result<NextPacket, Box<dyn Error>> {
+    pub async fn next_packet(&mut self) -> Result<NextPacket, tokio::io::Error> {
         let frame = self.read_frame().await?;
 
         Ok(self.receive_registry.decode(frame, self.protocol))
@@ -49,156 +56,100 @@ impl Connection {
         let registry_id = self.receive_registry.get_id::<T>()?;
 
         if registry_id != &id {
-            Err(format!("Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id))?;
+            return Err(format!("Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id).into());
         }
 
         T::from_bytes(&mut frame, self.protocol)
     }
 
-    async fn read_frame(&mut self) -> Result<BytesMut, Box<dyn Error>> {
-        match self.codec.next().await {
+    async fn read_frame(&mut self) -> Result<BytesMut, tokio::io::Error> {
+        match self.decoder.next().await {
             Some(r) => r,
-            None => Err(ConnectionClosed.into()),
+            None => Err(ErrorKind::ConnectionAborted.into()),
         }
     }
 
     pub async fn write_raw_packet(&mut self, packet: RawPacket) -> Result<(), Box<dyn Error>> {
-        let mut buf = BytesMut::new();
-
-        buf.put_u8(packet.id);
-        buf.extend_from_slice(&packet.data);
-
-        self.codec.send(buf).await
+        self.encoder.send(packet).await
     }
 
     pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
-        let mut buf = BytesMut::new();
+        let mut raw_packet = RawPacket {
+            id: self.send_registry.get_id::<T>()?.clone(),
+            data: BytesMut::new()
+        };
 
-        let id = self.send_registry.get_id::<T>()?;
-        buf.put_u8(*id);
-        packet.put_buf(&mut buf, self.protocol);
+        packet.put_buf(&mut raw_packet.data, self.protocol);
 
-        self.codec.send(buf).await
+        self.encoder.send(raw_packet).await
     }
 
     pub async fn put_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
-        let mut buf = BytesMut::new();
+        let mut raw_packet = RawPacket {
+            id: self.send_registry.get_id::<T>()?.clone(),
+            data: BytesMut::new()
+        };
 
-        let id = self.send_registry.get_id::<T>()?;
-        buf.put_u8(*id);
-        packet.put_buf(&mut buf, self.protocol);
+        packet.put_buf(&mut raw_packet.data, self.protocol);
 
-        self.codec.feed(buf).await
+        self.encoder.feed(raw_packet).await
     }
 
     pub async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
-        self.codec.close().await?;
-        self.codec.get_mut().shutdown().await?;
+        //self.codec.close().await?;
+        //self.codec.get_mut().shutdown().await?;
         Ok(())
     }
-}
 
-pub struct MinecraftCodec {
-    state: DecodeState
-}
-
-impl MinecraftCodec {
-    pub fn new() -> Self {
-        Self { state: DecodeState::ReadVarint(0, 0) }
+    pub fn enable_compression(&mut self, threshold: u32) {
+        //self.encoder.map_encoder(|e| {});
+        //self.codec.codec_mut().encryption = true;
     }
 }
 
-fn write_varint(mut value: u32, dst: &mut BytesMut) {
-    loop {
-        if (value & 0xFFFFFF80) == 0 {
-            dst.put_u8(value as u8);
-            return;
-        }
 
-        dst.put_u8((value & 0x7F | 0x80) as u8);
-        value >>= 7;
-    }
+/*
+pub struct Connection<'a> {
+    pub protocol: i32,
+    direction: Direction,
+    send_registry: &'static Registry,
+    receive_registry: &'static Registry,
+    
+    pub decoder: FrameDecoder<'a>,
+    pub encoder: FrameEncoder<'a>,
 }
 
-impl Encoder<BytesMut> for MinecraftCodec {
-    type Error = Box<dyn Error>;
+impl<'a> Connection<'a> {
+    pub fn new(stream: &'a mut TcpStream, direction: Direction) -> Self {
+        let (receive_registry, send_registry) = HANDSHAKE_REGISTRY.get_registry(&direction);
+        let (reader, writer) = stream.split();
 
-    fn encode(&mut self, item: BytesMut, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let length = item.len();
-        if length > MAX_PACKET_SIZE {
-            return Err(FrameToobig.into());
+        Self { 
+            protocol: 0,
+            direction,
+
+            send_registry,
+            receive_registry,
+
+            decoder: FrameDecoder::new(reader, receive_registry),
+            encoder: FrameEncoder::new(writer, send_registry),
         }
+    }
 
-        dst.reserve(length + 3);
+    pub fn set_registry(&mut self, registry: &'static StateRegistry) {
+        let (receive_registry, send_registry) = registry.get_registry(&self.direction);
+        self.decoder.registry = receive_registry;
+        self.encoder.registry = send_registry;
+    }
 
-        write_varint(length as u32, dst);
-        dst.extend_from_slice(&item);
+    pub async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        //self.codec.close().await?;
+        //self.codec.get_mut().shutdown().await?;
         Ok(())
     }
-}
 
-enum DecodeState {
-    ReadVarint(i32, i32),
-    Data(i32),
-}
-
-const MAX_HEADER_LENGTH: i32 = 3;
-fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> Result<DecodeState, Box<dyn Error>> {
-    let max_read = i32::min(MAX_HEADER_LENGTH, src.len() as i32);
-
-    for i in readed_bytes..max_read {
-        let byte = src.get_u8();
-        value |= ((byte & 0x7F) as i32) << (i * 7);
-
-        if (byte & 0x80) != 128 {
-            return Ok(DecodeState::Data(value));
-        }
-    }
-
-    if max_read < MAX_HEADER_LENGTH {
-        return Ok(DecodeState::ReadVarint(value, max_read));
-    }
-    Err(VarintTooBig.into()) 
-}
-
-impl Decoder for MinecraftCodec {
-    type Item = BytesMut;
-    type Error = Box<dyn std::error::Error>;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        //println!("start decoding");
-        //for byte in src.to_vec() {
-        //   print!("{} ", byte)
-        //}
-        //println!();
-        //println!("buf length: {}", src.len());
-        let length = match self.state {
-            DecodeState::Data(length) => length,
-            DecodeState::ReadVarint(value, readed_bytes) => {
-                self.state = read_varint(value, readed_bytes, src)?;
-                //println!("reading varint");
-
-                match self.state {
-                    DecodeState::Data(length) => length,
-                    DecodeState::ReadVarint(_, _) => {
-                        //println!("got read varint");
-                        //println!("{} {}", x, y);
-                        return Ok(None)
-                    },
-                }
-            },
-        } as usize;
-        //println!("got length: {}", length);
-        src.reserve(length.saturating_sub(src.len()));
-
-        if src.len() < length { 
-            return Ok(None);
-        }
-        self.state = DecodeState::ReadVarint(0, 0);
-
-        //println!("packed decoded");
-        Ok(Some(
-            src.split_to(length)
-        ))
+    pub fn enable_compression(&mut self) {
+        //self.codec.codec_mut().encryption = true;
     }
 }
+*/

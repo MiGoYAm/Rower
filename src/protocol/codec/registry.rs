@@ -3,9 +3,9 @@ use std::{error::Error, any::TypeId, collections::HashMap, fmt};
 use bytes::{BytesMut, Buf};
 use once_cell::{sync};
 
-use crate::protocol::{packet::{NextPacket, Packet, handshake::Handshake, status::{StatusResponse, StatusRequest, Ping}, Lazy, login::{Disconnect, LoginStart, LoginSuccess, SetCompression}, RawPacket}, Direction, V1_19_2};
+use crate::protocol::{packet::{NextPacket, Packet, handshake::Handshake, status::{StatusResponse, StatusRequest, Ping}, Lazy, login::{Disconnect, LoginStart, LoginSuccess, SetCompression}, RawPacket}, Direction, ProtocolVersion};
 
-type PacketProducer = fn(BytesMut, i32) -> NextPacket;
+pub type PacketProducer = fn(BytesMut, ProtocolVersion) -> NextPacket<'static>;
 
 pub static HANDSHAKE_REGISTRY: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
@@ -15,8 +15,8 @@ pub static HANDSHAKE_REGISTRY: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
 
 pub static STATUS_REGISTRY: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
-    registry.insert::<StatusRequest>(|b, v| NextPacket::Handshake(Lazy::new(b, v)), Id::Serverbound(0x00));
-    registry.insert::<StatusResponse>(|b, v| NextPacket::Handshake(Lazy::new(b, v)), Id::Clientbound(0x00));
+    registry.insert::<StatusRequest>(|_, _| NextPacket::StatusRequest, Id::Serverbound(0x00));
+    registry.insert::<StatusResponse>(|b, v| NextPacket::StatusResponse(Lazy::new(b, v)), Id::Clientbound(0x00));
     registry.insert::<Ping>(|b, v| NextPacket::Ping(Lazy::new(b, v)), Id::Both(0x01, 0x01));
     registry
 });
@@ -24,14 +24,14 @@ pub static STATUS_REGISTRY: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
 pub static LOGIN_REGISTRY: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
     registry.insert::<Disconnect>(|b, v| NextPacket::Disconnect(Lazy::new(b, v)), Id::Clientbound(0x00));
-    registry.insert::<LoginStart>(|b, v| NextPacket::Handshake(Lazy::new(b, v)), Id::Serverbound(0x00));
+    registry.insert::<LoginStart>(|b, v| NextPacket::LoginStart(Lazy::new(b, v)), Id::Serverbound(0x00));
     registry.insert::<LoginSuccess>(|b, v| NextPacket::LoginSuccess(Lazy::new(b, v)), Id::Clientbound(0x02));
     registry.insert::<SetCompression>(|b, v| NextPacket::SetCompression(Lazy::new(b, v)), Id::Clientbound(0x03));
     registry
 });
 
 pub static PLAY_REGISTRY: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
+    let registry = StateRegistry::new();
     registry
 });
 
@@ -87,7 +87,7 @@ impl Registry {
         self.id_packet.insert(id, p);
     }
 
-    pub fn decode(&self, mut buf: BytesMut, version: i32) -> NextPacket {
+    pub fn decode(&self, mut buf: BytesMut, version: ProtocolVersion) -> NextPacket {
         let id = buf.get_u8();
         match self.id_packet.get(&id) {
             Some(v) => v(buf, version),
