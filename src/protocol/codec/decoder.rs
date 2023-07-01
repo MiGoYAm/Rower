@@ -1,5 +1,11 @@
-use bytes::{BytesMut};
+use std::io::Read;
+
+use bytes::{BytesMut, Buf};
+use flate2::read::ZlibDecoder;
+use libdeflater::Decompressor;
 use tokio_util::codec::Decoder;
+
+use crate::protocol::util::get_varint;
 
 use super::util::read_varint;
 
@@ -7,13 +13,19 @@ pub enum DecodeState {
     ReadVarint(i32, i32),
     Data(i32),
 }
+
 pub struct MinecraftDecoder {
     state: DecodeState,
+    decompression: Option<Decompressor>,
 }
 
 impl MinecraftDecoder {
     pub fn new() -> Self {
-        Self { state: DecodeState::ReadVarint(0, 0) }
+        Self { state: DecodeState::ReadVarint(0, 0), decompression: None }
+    }
+
+    pub fn enable_compression(&mut self) {
+        self.decompression = Some(Decompressor::new())
     }
 }
 
@@ -41,85 +53,26 @@ impl Decoder for MinecraftDecoder {
         }
         self.state = DecodeState::ReadVarint(0, 0);
 
-        Ok(Some(
-            src.split_to(length)
-        ))
-    }
-}
+        let mut src = src.split_to(length);
 
-/*
-pub struct FrameDecoder<'a> {
-    framed: FramedRead<ReadHalf<'a>, MinecraftDecoder>,
-    pub registry: &'static Registry
-}
+        if let Some(_decompressor) = &mut self.decompression {
+            let data_lenght = get_varint(&mut src).unwrap();
 
-impl<'a> FrameDecoder<'a> {
-    pub fn new(reader: ReadHalf<'a>, registry: &'static Registry) -> Self {
-        Self {
-            framed: FramedRead::new(reader, MinecraftDecoder::new()),
-            registry
-        }
-    }
+            if data_lenght == 0 {
+                return Ok(Some(src));
+            }
 
-    async fn next_frame(&mut self) -> tokio::io::Result<BytesMut> {
-        match self.framed.next().await {
-            Some(r) => r,
-            None => todo!(),
-        }
-    }
-    
-    pub async fn next_packet(&mut self) -> tokio::io::Result<NextPacket> {
-        let frame = self.next_frame().await?;
+            //let mut buf = BytesMut::with_capacity(data_lenght as usize);
+            let mut buf = Vec::with_capacity(data_lenght as usize);
 
-        Ok(self.registry.decode(frame, ProtocolVersion::Unknown))
-    }
+            //decompressor.zlib_decompress(&src, &mut buf).unwrap();
+            let mut z = ZlibDecoder::new(src.reader());
+            let _result = z.read_to_end(&mut buf).unwrap();
+            //println!("in: {}, out: {}, result: {}", z.total_in(), z.total_out(), result);
 
-    pub async fn read_packet<T: Packet + 'static>(&mut self) -> Result<T, Box<dyn Error>> {
-        let mut frame = self.next_frame().await?;
-        let id = frame.get_u8();
-        let registry_id = self.registry.get_id::<T>()?;
-
-        if registry_id != &id {
-            Err(format!("Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id))?;
+            return Ok(Some(BytesMut::from_iter(buf)))
         }
 
-        T::from_bytes(&mut frame, ProtocolVersion::Unknown)
+        Ok(Some(src))
     }
 }
-
-pub struct FrameDecompressor<'a> {
-    framed: FrameDecoder<'a>,
-    decompressor: Decompressor
-}
-impl FrameDecompressor<'_> {
-    pub async fn next_frame(&mut self) -> Result<BytesMut, Box<dyn Error>> {
-        let mut frame = self.framed.next_frame().await?;
-        
-        let data_lenght = get_varint(&mut frame)? as usize;
-        if data_lenght == 0 {
-            return Ok(frame);
-        }
-
-        let mut data = BytesMut::with_capacity(data_lenght);
-        self.decompressor.zlib_decompress(&mut frame, &mut data)?;
-
-        Ok(data)
-    }
-}
-
-struct CompressionCodec {
-    compressor: Compressor,
-}
-
-impl Encoder<BytesMut> for CompressionCodec {
-    type Error = Box<dyn Error>;
-
-    fn encode(&mut self, src: BytesMut, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
-        let mut data = BytesMut::with_capacity(self.compressor.zlib_compress_bound(src.len()));
-        let data_length = self.compressor.zlib_compress(&src, &mut data)?;
-        put_varint(dst, data_length as u32);
-        dst.extend_from_slice(&data);
-        Ok(())
-    }
-}
-*/

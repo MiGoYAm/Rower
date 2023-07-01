@@ -2,16 +2,16 @@ use std::error::Error;
 
 use bytes::BytesMut;
 
-use self::{handshake::Handshake, login::{LoginStart, LoginSuccess, Disconnect, SetCompression}, status::{Ping, StatusResponse}};
+use self::{handshake::Handshake, login::{LoginStart, LoginSuccess, Disconnect, SetCompression, EncryptionRequest, EncryptionResponse}, status::{Ping, StatusResponse}, play::PluginMessage};
 
 use super::ProtocolVersion;
 
 pub mod handshake;
-pub mod login;
 pub mod status;
+pub mod login;
+pub mod play;
 
 pub trait Packet {
-
     fn from_bytes(buf: &mut BytesMut, version: ProtocolVersion) -> Result<Self, Box<dyn Error>>
     where Self: Sized;
 
@@ -23,19 +23,22 @@ pub struct RawPacket {
     pub data: BytesMut
 }
 
-pub enum NextPacket<'a> {
-    RawPacket(RawPacket),
+pub enum PacketType<'a> {
+    Raw(RawPacket),
     Handshake(Lazy<Handshake>),
 
     StatusRequest,
     StatusResponse(Lazy<StatusResponse<'a>>),
     Ping(Lazy<Ping>),
 
-    Disconnect(Lazy<Disconnect>),
     LoginStart(Lazy<LoginStart>),
+    EncryptionRequest(Lazy<EncryptionRequest>),
+    EncryptionResponse(Lazy<EncryptionResponse>),
     SetCompression(Lazy<SetCompression>),
     LoginSuccess(Lazy<LoginSuccess>),
+    Disconnect(Lazy<Disconnect>),
 
+    PluginMessage(Lazy<PluginMessage>)
 }
 
 pub struct Lazy<T: Packet> {
@@ -46,11 +49,10 @@ pub struct Lazy<T: Packet> {
 
 impl<T: Packet> Lazy<T> {
     pub fn new(buf: BytesMut, version: ProtocolVersion) -> Self {
-        Self{buf, version, f: T::from_bytes}
+        Self { buf, version, f: T::from_bytes }
     }
 
     pub fn get(&mut self) -> Result<T, Box<dyn Error>> {
         (self.f)(&mut self.buf, self.version)
     }
 }
-

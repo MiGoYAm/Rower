@@ -4,7 +4,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use serde::{Serialize, Serializer};
 use crate::protocol::ProtocolVersion;
 use crate::protocol::util::put_byte_array;
-use crate::TextComponent;
+use crate::Component;
 
 use super::Packet;
 
@@ -23,19 +23,21 @@ pub struct Version {
     pub name: &'static str,
     pub protocol: i32,
 }
+
 #[derive(Serialize)]
 pub struct Players {
     pub max: i32,
     pub online: i32,
     pub sample: Vec<SamplePlayer>,
 }
+
 #[derive(Serialize)]
 pub struct SamplePlayer {
     pub name: &'static str,
     pub id: uuid::Uuid,
 }
 pub enum Motd {
-    Component(TextComponent),
+    Component(Component),
     Plain(String),
 }
 
@@ -66,7 +68,6 @@ pub struct StatusResponse<'a> {
 }
 
 impl<'a> Packet for StatusResponse<'a> {
-    
     fn from_bytes(_buf: &mut BytesMut, _version: ProtocolVersion) -> Result<Self, Box<dyn Error>>
     where Self: Sized {
         todo!()

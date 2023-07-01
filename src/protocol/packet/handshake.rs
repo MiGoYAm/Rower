@@ -1,5 +1,5 @@
 use super::Packet;
-use crate::protocol::{util, ProtocolVersion};
+use crate::protocol::{util::{get_varint, get_string, put_varint, put_string}, ProtocolVersion};
 use bytes::{Buf, BytesMut, BufMut};
 use std::error::Error;
 
@@ -13,16 +13,16 @@ pub struct Handshake {
 impl Packet for Handshake {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
-            protocol: util::get_varint(buf)?,
-            server_address: util::get_string(buf, 255)?,
+            protocol: get_varint(buf)?,
+            server_address: get_string(buf, 255)?,
             port: buf.get_u16(),
             state: buf.get_u8(),
         })
     }
 
     fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
-        util::put_varint(buf, self.protocol as u32);
-        util::put_string(buf, &self.server_address);
+        put_varint(buf, self.protocol as u32);
+        put_string(buf, &self.server_address);
         buf.put_u16(self.port);
         buf.put_u8(self.state);
     }

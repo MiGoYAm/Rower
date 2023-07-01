@@ -1,30 +1,29 @@
 use std::{error::Error, io::ErrorKind};
 
-use bytes::{BytesMut, Buf, BufMut};
+use bytes::{BytesMut, Buf};
 use futures::{SinkExt, StreamExt};
-use tokio::net::{TcpStream, tcp::{ReadHalf, WriteHalf}};
+use tokio::net::{TcpStream, tcp::{OwnedWriteHalf, OwnedReadHalf}};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::protocol::{packet::{NextPacket, Packet, RawPacket}, Direction, ProtocolVersion};
+use crate::protocol::{packet::{PacketType, Packet, RawPacket}, Direction, ProtocolVersion, HANDSHAKE, STATUS, LOGIN, PLAY};
 
-use super::{decoder::MinecraftDecoder, encoder::{MinecraftEncoder, MinecraftEncoderComp}, reg::{ProtocolRegistry, HANDSHAKE_REG, StateRegistry}};
+use super::{decoder::MinecraftDecoder, encoder::MinecraftEncoder, registry::{ProtocolRegistry, HANDSHAKE_REG, StateRegistry, STATUS_REG, LOGIN_REG, PLAY_REG}};
 
-
-pub struct Connection<'a> {
+pub struct Connection {
     pub protocol: ProtocolVersion,
     direction: Direction,
 
     send_registry: &'static ProtocolRegistry,
     receive_registry: &'static ProtocolRegistry,
     
-    decoder: FramedRead<ReadHalf<'a>, MinecraftDecoder>,
-    encoder: FramedWrite<WriteHalf<'a>, MinecraftEncoder>,
+    framed_read: FramedRead<OwnedReadHalf, MinecraftDecoder>,
+    framed_write: FramedWrite<OwnedWriteHalf, MinecraftEncoder>,
 }
 
-impl<'a> Connection<'a> {
-    pub fn new(stream: &'a mut TcpStream, direction: Direction) -> Self {
+impl Connection {
+    pub fn new(stream: TcpStream, direction: Direction) -> Self {
         let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction, &ProtocolVersion::Unknown);
-        let (reader, writer) = stream.split();
+        let (reader, writer) = stream.into_split();
 
         Self { 
             protocol: ProtocolVersion::Unknown,
@@ -33,18 +32,31 @@ impl<'a> Connection<'a> {
             send_registry,
             receive_registry,
 
-            decoder: FramedRead::new(reader, MinecraftDecoder::new()),
-            encoder: FramedWrite::new(writer, MinecraftEncoder::new()),
+            framed_read: FramedRead::new(reader, MinecraftDecoder::new()),
+            framed_write: FramedWrite::new(writer, MinecraftEncoder::new()),
         }
     }
 
-    pub fn set_registry(&mut self, registry: &'static StateRegistry) {
-        let (receive_registry, send_registry) = registry.get_registry(&self.direction, &self.protocol);
-        self.receive_registry = receive_registry;
-        self.send_registry = send_registry;
+    pub async fn connect(addr: &str, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self::new(TcpStream::connect(addr).await?, direction))
     }
 
-    pub async fn next_packet(&mut self) -> Result<NextPacket, tokio::io::Error> {
+    pub fn change_state(&mut self, state: u8) {
+        let registry = match state {
+            HANDSHAKE => &HANDSHAKE_REG,
+            STATUS => &STATUS_REG,
+            LOGIN => &LOGIN_REG,
+            PLAY => &PLAY_REG,
+            _ => panic!("invalid state")
+        };
+        self.set_registry(registry);
+    }
+
+    fn set_registry(&mut self, registry: &'static StateRegistry) {
+        (self.receive_registry, self.send_registry) = registry.get_registry(&self.direction, &self.protocol);
+    }
+
+    pub async fn next_packet(&mut self) -> Result<PacketType, tokio::io::Error> {
         let frame = self.read_frame().await?;
 
         Ok(self.receive_registry.decode(frame, self.protocol))
@@ -63,93 +75,46 @@ impl<'a> Connection<'a> {
     }
 
     async fn read_frame(&mut self) -> Result<BytesMut, tokio::io::Error> {
-        match self.decoder.next().await {
+        match self.framed_read.next().await {
             Some(r) => r,
             None => Err(ErrorKind::ConnectionAborted.into()),
         }
     }
 
     pub async fn write_raw_packet(&mut self, packet: RawPacket) -> Result<(), Box<dyn Error>> {
-        self.encoder.send(packet).await
+        self.framed_write.send(packet).await
     }
 
     pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
-        let mut raw_packet = RawPacket {
-            id: self.send_registry.get_id::<T>()?.clone(),
-            data: BytesMut::new()
-        };
-
-        packet.put_buf(&mut raw_packet.data, self.protocol);
-
-        self.encoder.send(raw_packet).await
+        let raw_packet = self.serialize_packet(packet)?;
+        self.framed_write.send(raw_packet).await
     }
 
-    pub async fn put_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
+    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
+        let raw_packet = self.serialize_packet(packet)?;
+        self.framed_write.feed(raw_packet).await
+    }
+
+    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> Result<RawPacket, Box<dyn Error>> {
         let mut raw_packet = RawPacket {
             id: self.send_registry.get_id::<T>()?.clone(),
             data: BytesMut::new()
         };
 
         packet.put_buf(&mut raw_packet.data, self.protocol);
-
-        self.encoder.feed(raw_packet).await
+        Ok(raw_packet)
     }
 
     pub async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
-        //self.codec.close().await?;
-        //self.codec.get_mut().shutdown().await?;
-        Ok(())
+        self.framed_write.close().await
     }
 
     pub fn enable_compression(&mut self, threshold: u32) {
-        //self.encoder.map_encoder(|e| {});
-        //self.codec.codec_mut().encryption = true;
+        self.framed_read.decoder_mut().enable_compression();
+        self.framed_write.encoder_mut().enable_compression(threshold);
+    }
+
+    pub fn enable_encryption(&mut self) {
+        todo!()
     }
 }
-
-
-/*
-pub struct Connection<'a> {
-    pub protocol: i32,
-    direction: Direction,
-    send_registry: &'static Registry,
-    receive_registry: &'static Registry,
-    
-    pub decoder: FrameDecoder<'a>,
-    pub encoder: FrameEncoder<'a>,
-}
-
-impl<'a> Connection<'a> {
-    pub fn new(stream: &'a mut TcpStream, direction: Direction) -> Self {
-        let (receive_registry, send_registry) = HANDSHAKE_REGISTRY.get_registry(&direction);
-        let (reader, writer) = stream.split();
-
-        Self { 
-            protocol: 0,
-            direction,
-
-            send_registry,
-            receive_registry,
-
-            decoder: FrameDecoder::new(reader, receive_registry),
-            encoder: FrameEncoder::new(writer, send_registry),
-        }
-    }
-
-    pub fn set_registry(&mut self, registry: &'static StateRegistry) {
-        let (receive_registry, send_registry) = registry.get_registry(&self.direction);
-        self.decoder.registry = receive_registry;
-        self.encoder.registry = send_registry;
-    }
-
-    pub async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
-        //self.codec.close().await?;
-        //self.codec.get_mut().shutdown().await?;
-        Ok(())
-    }
-
-    pub fn enable_compression(&mut self) {
-        //self.codec.codec_mut().encryption = true;
-    }
-}
-*/

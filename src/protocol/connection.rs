@@ -76,5 +76,4 @@ impl DeprectedConnection {
         self.stream.write_buf(&mut packet.data).await?;
         Ok(())
     }
-
 }

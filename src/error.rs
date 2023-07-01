@@ -28,4 +28,5 @@ impl Display for ReadError {
         write!(f, "")
     }
 }
+
 impl Error for ReadError {}

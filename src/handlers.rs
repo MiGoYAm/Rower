@@ -6,7 +6,7 @@ use image::io::Reader as ImageReader;
 use log::warn;
 use once_cell::sync::Lazy;
 
-use crate::{protocol::packet::status::{Status, Version, Players, Motd}, component::TextComponent};
+use crate::{protocol::packet::status::{Status, Version, Players, Motd}, component::Component};
 
 //type Handler = fn(Connection) -> Result<(), Box<dyn Error>>;
 
@@ -21,7 +21,7 @@ pub static STATES: Lazy<Vec<u8>> = Lazy::new(|| {
             max: 16, 
             sample: vec![],
         },
-        description: Motd::Component(TextComponent::new("azz".to_string())), 
+        description: Motd::Component(Component::text("azz".to_string())), 
         favicon: optional_favicon(),
     };
     serde_json::to_vec(&status).unwrap()

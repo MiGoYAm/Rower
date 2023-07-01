@@ -4,15 +4,33 @@ use bytes::{BytesMut, BufMut};
 use libdeflater::{Compressor, CompressionLvl};
 use tokio_util::codec::Encoder;
 
-use crate::protocol::{packet::RawPacket};
+use crate::protocol::packet::RawPacket;
 
-use super::{error::FrameToobig, util::{write_varint, MAX_PACKET_SIZE}};
+use super::util::write_varint;
 
-pub struct MinecraftEncoder;
+struct Compression {
+    threshold: usize,
+    compressor: Compressor,
+}
+
+pub struct MinecraftEncoder {
+    compression: Option<Compression>
+}
 
 impl MinecraftEncoder {
     pub fn new() -> Self {
-        Self
+        Self { compression: None }
+    }
+
+    pub fn enable_compression(&mut self, threshold: u32) {
+        self.compression = Some(Compression { threshold: threshold as usize, compressor: Compressor::new(CompressionLvl::best()) })
+    }
+
+    fn convert_packet(&self, packet: RawPacket) -> BytesMut {
+        let mut data = BytesMut::with_capacity(packet.data.len() + 1);
+        data.put_u8(packet.id);
+        data.extend_from_slice(&packet.data);
+        data
     }
 }
 
@@ -20,115 +38,37 @@ impl Encoder<RawPacket> for MinecraftEncoder {
     type Error = Box<dyn Error>;
 
     fn encode(&mut self, item: RawPacket, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        dst.reserve(item.data.len() + 1);
+        let mut packet = self.convert_packet(item);
 
-        dst.put_u8(item.id);
-        dst.extend_from_slice(&item.data);
-        Ok(())
-    }
-}
+        let result = if let Some(Compression { threshold, compressor }) = &mut self.compression {
+            let mut result = BytesMut::with_capacity(packet.len() + 3);
 
-pub struct MinecraftEncoderComp {
-    threshold: u32,
-    compressor: Compressor
-}
+            if packet.len() < *threshold {
+                result.put_u8(0x00);
+                result.extend_from_slice(&mut packet);
+                result
+            } else {
+                write_varint(&mut result, packet.len() as u32);
 
-impl MinecraftEncoderComp {
-    pub fn new(threshold: u32) -> Self {
-        Self { 
-            threshold,
-            compressor: Compressor::new(CompressionLvl::best()) 
-        }
-    }
-}
+                let mut payload = result.split_off(result.len());
+                payload.resize(packet.len(), 0x00);
 
-impl Encoder<BytesMut> for MinecraftEncoderComp {
-    type Error = Box<dyn Error>;
+                let r = compressor.zlib_compress(&packet, &mut payload)?;
+                payload.resize(r, 0x00);
 
-    fn encode(&mut self, item: BytesMut, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let length = item.len();
+                result.unsplit(payload);
+                result
 
-        if (length as u32) < self.threshold {
-            dst.reserve(length + 1);
-            dst.put_u8(0x00);
-            dst.extend_from_slice(&item);
+            }
         } else {
-            dst.reserve(self.compressor.zlib_compress_bound(length) + 3);
-            write_varint(length as u32, dst);
-            self.compressor.zlib_compress(&item, dst)?;
-        }
+            packet
+        };
+
+
+        dst.reserve(result.len() + 3);
+        write_varint(dst, result.len() as u32);
+        dst.extend_from_slice(&result);
 
         Ok(())
     }
 }
-
-pub struct MinecraftEncoderVarint;
-
-impl MinecraftEncoderVarint {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Encoder<BytesMut> for MinecraftEncoderVarint {
-    type Error = Box<dyn Error>;
-
-    fn encode(&mut self, item: BytesMut, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let length = item.len();
-        if length > MAX_PACKET_SIZE {
-            return Err(FrameToobig.into());
-        }
-
-        dst.reserve(length + 3);
-
-        write_varint(length as u32, dst);
-        dst.extend_from_slice(&item);
-        Ok(())
-    }
-}
-
-/*
-pub struct FrameEncoder<'a> {
-    framed: FramedWrite<WriteHalf<'a>, MinecraftEncoder>,
-    pub registry: &'static Registry
-}
-
-impl<'a> FrameEncoder<'a> {
-    pub fn new(writer: WriteHalf<'a>, registry: &'static Registry) -> Self {
-        Self {
-            framed: FramedWrite::new(writer, MinecraftEncoder::new()),
-            registry
-        }
-    }
-
-    pub async fn write_raw_packet(&mut self, packet: RawPacket) -> Result<(), Box<dyn Error>> {
-        let mut buf = BytesMut::new();
-
-        buf.put_u8(packet.id);
-        buf.extend_from_slice(&packet.data);
-
-        self.framed.send(buf).await.unwrap();
-        Ok(())
-    }
-
-    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
-        let mut buf = BytesMut::new();
-
-        let id = self.registry.get_id::<T>()?;
-        buf.put_u8(*id);
-        packet.put_buf(&mut buf, ProtocolVersion::Unknown);
-
-        self.framed.send(buf).await
-    }
-
-    pub async fn put_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
-        let mut buf = BytesMut::new();
-
-        let id = self.registry.get_id::<T>()?;
-        buf.put_u8(*id);
-        packet.put_buf(&mut buf, ProtocolVersion::Unknown);
-
-        self.framed.feed(buf).await
-    }
-}
-*/

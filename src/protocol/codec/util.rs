@@ -25,7 +25,7 @@ pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> Res
 }
 
 #[inline(always)]
-pub fn write_varint(value: u32, dst: &mut BytesMut) {
+pub fn write_varint(dst: &mut BytesMut, value: u32) {
     if (value & (0xFFFFFFFF << 7)) == 0 {
         dst.put_u8(value as u8);
     } else if (value & (0xFFFFFFFF << 14)) == 0 {

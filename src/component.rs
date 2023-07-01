@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use serde::{Serialize, Deserialize};
+use serde_with::skip_serializing_none;
 
 pub enum Color {
     RGB(u8, u8, u8),
@@ -25,57 +26,129 @@ impl Color {
     pub const WHITE: Color = Color::RGB(63, 63, 63);
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct TextComponent {
-    pub text: String,
+/* todo
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bold: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub italic: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub underlined: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strikethrough: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub obfuscated: Option<bool>,
-
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extra: Vec<TextComponent>,
+pub enum Type {
+    Text(String),
+    Translation {
+        translate: String,
+        with: Option<Vec<Component>>
+    },
+    Keybind(String)
 }
 
-impl TextComponent {
-    pub fn new(s: String) -> Self {
+impl Serialize for Type {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: serde::Serializer {
+        match self {
+            Type::Text(text) => 
+                serializer.serialize_newtype_variant("type", 0, "text", text),
+            Type::Translation { translate, with } => {
+                let mut state = 
+                    serializer.serialize_struct("translation", 2)?;
+                state.serialize_field("translate", translate)?;
+                state.serialize_field("with", with)?;
+                state.end()
+            },
+            Type::Keybind(key) => 
+                serializer.serialize_newtype_variant("type", 1, "key", key),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Type {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        todo!()
+    }
+}
+*/
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Type {
+    Text { text: String },
+    Translation {
+        translate: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        with: Option<Vec<Component>>
+    },
+    Keybind { keybind: String }
+}
+
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize)]
+pub struct Component {
+    #[serde(flatten)]
+    pub content: Type,
+
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub underlined: Option<bool>,
+    pub strikethrough: Option<bool>,
+    pub obfuscated: Option<bool>,
+    pub font: Option<String>,
+    //pub color: Option<Color>,
+    pub insertion: Option<String>,
+    pub extra: Option<Vec<Component>>,
+}
+
+impl Component {
+    pub fn text(text: String) -> Self {
         Self {
-            text: s,
+            content: Type::Text { text },
             bold: None,
             italic: None,
             underlined: None,
             strikethrough: None,
             obfuscated: None,
-            extra: vec![],
+            font: None,
+            insertion: None,
+            extra: None,
         }
     }
 
-    pub fn overwrite_extra(&mut self, components: Vec<TextComponent>) {
-        self.extra = components;
+    pub fn content(content: Type) -> Self {
+        Self {
+            content,
+            bold: None,
+            italic: None,
+            underlined: None,
+            strikethrough: None,
+            obfuscated: None,
+            font: None,
+            insertion: None,
+            extra: None,
+        }
     }
-    pub fn append(&mut self, mut components: Vec<TextComponent>) {
-        self.extra.append(&mut components);
+
+    pub fn overwrite_extra(&mut self, components: Vec<Component>) {
+        self.extra = Some(components);
     }
-    pub fn push(&mut self, component: TextComponent) {
-        self.extra.push(component)
+    
+    pub fn append(&mut self, mut components: Vec<Component>) {
+        let extra = self.extra.get_or_insert(Vec::new());
+        extra.append(&mut components);
+    }
+
+    pub fn push(&mut self, component: Component) {
+        let extra = self.extra.get_or_insert(Vec::new());
+        extra.push(component)
     }
 
     pub fn bold(&mut self, b: bool) {
         self.bold = Some(b);
     }
+
     pub fn underlined(&mut self, b: bool) {
         self.underlined = Some(b);
     }
+
     pub fn strikethrough(&mut self, b: bool) {
         self.strikethrough = Some(b);
     }
+
     pub fn obfuscated(&mut self, b: bool) {
         self.obfuscated = Some(b);
     }
