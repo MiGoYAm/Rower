@@ -171,15 +171,15 @@ impl ProtocolRegistry {
         }
     }
 
-    fn insert<T: Packet + 'static>(&mut self, p: PacketProducer, id: u8) {
+    fn insert<T: Packet + 'static>(&mut self, producer: PacketProducer, id: u8) {
         self.packet_id.insert(TypeId::of::<T>(), id);
-        self.id_packet.insert(id, p);
+        self.id_packet.insert(id, producer);
     }
 
     pub fn decode(&self, mut buf: BytesMut, version: ProtocolVersion) -> Result<PacketType, Box<dyn Error>> {
         let id = buf.get_u8();
         match self.id_packet.get(&id) {
-            Some(v) => v(buf, version),
+            Some(function) => function(buf, version),
             None => Ok(PacketType::Raw(RawPacket { id, data: buf })),
         }
     }

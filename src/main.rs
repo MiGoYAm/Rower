@@ -24,7 +24,7 @@ mod handlers;
 mod config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {    
     simple_logger::init_with_level(log::Level::Info)?;
 
     let listener = TcpListener::bind(config::ADDRESS).await?;
@@ -84,7 +84,7 @@ async fn handle_login(mut client: Connection) -> Result<(), Box<dyn Error>> {
     if config::ONLINE {}
 
     if config::THRESHOLD > -1 {
-        client.write_packet(SetCompression { threshold: config::THRESHOLD }).await?;
+        client.queue_packet(SetCompression { threshold: config::THRESHOLD }).await?;
         client.enable_compression(config::THRESHOLD as u32);
     }
  
@@ -103,7 +103,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
     client.change_state(PLAY);
     loop {
         tokio::select! {
-            Ok(packet) = server.next_packet() => {
+            Some(packet) = server.next_packet() => {
                 match packet {
                     PacketType::Raw(packet) => client.write_raw_packet(packet).await?,
                     PacketType::PluginMessage(mut packet) => {
@@ -128,7 +128,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
                     _ => println!("server cos wysłał")
                 }
             },
-            Ok(packet) = client.next_packet() => { 
+            Some(packet) = client.next_packet() => { 
                 match packet {
                     PacketType::Raw(p) => server.write_raw_packet(p).await?,
                     _ => println!("client cos wysłał")
@@ -155,7 +155,7 @@ async fn create_backend_connection(backend_server: &Server, version: ProtocolVer
         uuid: None,
     }).await?;
 
-    match server.next_packet().await? {
+    match server.next_packet().await.unwrap() {
         PacketType::EncryptionRequest(_) => panic!("encryption is not implemented"),
         PacketType::SetCompression(SetCompression { threshold }) => {
             if threshold > -1 {

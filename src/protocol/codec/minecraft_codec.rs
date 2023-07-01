@@ -60,10 +60,17 @@ impl Connection {
         (self.receive_registry, self.send_registry) = registry.get_registry(&self.direction, &self.protocol);
     }
 
-    pub async fn next_packet(&mut self) -> Result<PacketType, Box<dyn Error + Send>> {
-        let frame = self.read_frame().await;
+    /*
+    pub async fn next_packet(&mut self) -> Result<PacketType, Box<dyn Error>> {
+        let frame = self.read_frame().await?;
 
         self.receive_registry.decode(frame, self.protocol)
+    }
+    */
+    pub async fn next_packet(&mut self) -> Option<PacketType> {
+        let frame = if let Ok(buf) = self.read_frame().await { buf } else { return None };
+
+        self.receive_registry.decode(frame, self.protocol).ok()
     }
 
     pub async fn read_packet<T: Packet + 'static>(&mut self) -> Result<T, Box<dyn Error>> {
