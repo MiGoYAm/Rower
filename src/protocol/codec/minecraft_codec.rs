@@ -21,14 +21,12 @@ pub struct Connection {
 }
 
 impl Connection {
-    
-
-    pub fn new(stream: TcpStream, direction: Direction) -> Self {
+    fn create(stream: TcpStream, version: ProtocolVersion, direction: Direction) -> Self {
         let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction, &ProtocolVersion::Unknown);
         let (reader, writer) = stream.into_split();
 
         Self { 
-            protocol: ProtocolVersion::Unknown,
+            protocol: version,
             direction,
 
             send_registry,
@@ -39,8 +37,12 @@ impl Connection {
         }
     }
 
-    pub async fn connect(addr: &str, version: ProtocolRegistry, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self::new(TcpStream::connect(addr).await?, direction))
+    pub fn new(stream: TcpStream, direction: Direction) -> Self {
+        Self::create(stream, ProtocolVersion::Unknown, direction)
+    }
+
+    pub async fn connect(addr: &str, version: ProtocolVersion, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self::create(TcpStream::connect(addr).await?, version, direction))
     }
 
     pub fn change_state(&mut self, state: u8) {
@@ -58,8 +60,8 @@ impl Connection {
         (self.receive_registry, self.send_registry) = registry.get_registry(&self.direction, &self.protocol);
     }
 
-    pub async fn next_packet(&mut self) -> Result<PacketType, Box<dyn Error>> {
-        let frame = self.read_frame().await?;
+    pub async fn next_packet(&mut self) -> Result<PacketType, Box<dyn Error + Send>> {
+        let frame = self.read_frame().await;
 
         self.receive_registry.decode(frame, self.protocol)
     }

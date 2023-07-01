@@ -126,13 +126,13 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
                         client.shutdown().await?;
                     },
                     _ => println!("server cos wysłał")
-                };
+                }
             },
             Ok(packet) = client.next_packet() => { 
                 match packet {
                     PacketType::Raw(p) => server.write_raw_packet(p).await?,
                     _ => println!("client cos wysłał")
-                };
+                }
             },  
             else => return Ok(())
         };
@@ -140,9 +140,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
 }
 
 async fn create_backend_connection(backend_server: &Server, version: ProtocolVersion, username: String) -> Result<Connection, Box<dyn Error>> {
-    let mut server = Connection::connect(backend_server.ip, Direction::Clientbound).await?;
-
-    server.protocol = version;
+    let mut server = Connection::connect(backend_server.ip, version, Direction::Clientbound).await?;
 
     server.queue_packet(Handshake { 
         protocol: version as i32, 
@@ -158,13 +156,13 @@ async fn create_backend_connection(backend_server: &Server, version: ProtocolVer
     }).await?;
 
     match server.next_packet().await? {
-        PacketType::EncryptionRequest(_) => panic!("encryption not implemented"),
+        PacketType::EncryptionRequest(_) => panic!("encryption is not implemented"),
         PacketType::SetCompression(SetCompression { threshold }) => {
             if threshold > -1 {
                 server.enable_compression(threshold as u32);
             }
 
-            //server.read_packet::<LoginSuccess>().await?;
+            server.read_packet::<LoginSuccess>().await?;
             server.change_state(PLAY);
         },
         PacketType::LoginSuccess(_) => server.change_state(PLAY),
