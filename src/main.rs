@@ -11,7 +11,7 @@ use std::error::Error;
 use tokio::net::{TcpListener, TcpStream};
 use uuid::Uuid;
 
-use crate::component::{Component};
+use crate::component::Component;
 
 use crate::protocol::ProtocolVersion;
 use crate::protocol::packet::status::{Ping, StatusRequest, StatusResponse};
@@ -105,10 +105,8 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
         tokio::select! {
             Ok(packet) = server.next_packet() => {
                 match packet {
-                    PacketType::Raw(p) => client.write_raw_packet(p).await?,
-                    PacketType::PluginMessage(mut p) => {
-                        let mut packet = p.get()?;
-
+                    PacketType::Raw(packet) => client.write_raw_packet(packet).await?,
+                    PacketType::PluginMessage(mut packet) => {
                         if packet.channel == "minecraft:brand" {
                             let mut buf = BytesMut::from(packet.data.as_slice());
 
@@ -122,9 +120,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
                         }
                         client.write_packet(packet).await?;
                     },
-                    PacketType::Disconnect(mut p) => {
-                        let packet = p.get()?;
-
+                    PacketType::Disconnect(packet) => {
                         server.shutdown().await?;
                         client.write_packet(packet).await?;
                         client.shutdown().await?;
@@ -136,7 +132,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
                 match packet {
                     PacketType::Raw(p) => server.write_raw_packet(p).await?,
                     _ => println!("client cos wysłał")
-                }
+                };
             },  
             else => return Ok(())
         };
@@ -163,13 +159,12 @@ async fn create_backend_connection(backend_server: &Server, version: ProtocolVer
 
     match server.next_packet().await? {
         PacketType::EncryptionRequest(_) => panic!("encryption not implemented"),
-        PacketType::SetCompression(mut p) => {
-            let threshold = p.get()?.threshold;
+        PacketType::SetCompression(SetCompression { threshold }) => {
             if threshold > -1 {
                 server.enable_compression(threshold as u32);
             }
 
-            let _p: LoginSuccess = server.read_packet().await?;
+            //server.read_packet::<LoginSuccess>().await?;
             server.change_state(PLAY);
         },
         PacketType::LoginSuccess(_) => server.change_state(PLAY),

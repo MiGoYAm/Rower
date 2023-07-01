@@ -21,6 +21,8 @@ pub struct Connection {
 }
 
 impl Connection {
+    
+
     pub fn new(stream: TcpStream, direction: Direction) -> Self {
         let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction, &ProtocolVersion::Unknown);
         let (reader, writer) = stream.into_split();
@@ -37,7 +39,7 @@ impl Connection {
         }
     }
 
-    pub async fn connect(addr: &str, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn connect(addr: &str, version: ProtocolRegistry, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self::new(TcpStream::connect(addr).await?, direction))
     }
 
@@ -56,10 +58,10 @@ impl Connection {
         (self.receive_registry, self.send_registry) = registry.get_registry(&self.direction, &self.protocol);
     }
 
-    pub async fn next_packet(&mut self) -> Result<PacketType, tokio::io::Error> {
+    pub async fn next_packet(&mut self) -> Result<PacketType, Box<dyn Error>> {
         let frame = self.read_frame().await?;
 
-        Ok(self.receive_registry.decode(frame, self.protocol))
+        self.receive_registry.decode(frame, self.protocol)
     }
 
     pub async fn read_packet<T: Packet + 'static>(&mut self) -> Result<T, Box<dyn Error>> {

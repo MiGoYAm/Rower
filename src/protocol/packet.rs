@@ -25,34 +25,18 @@ pub struct RawPacket {
 
 pub enum PacketType<'a> {
     Raw(RawPacket),
-    Handshake(Lazy<Handshake>),
+    Handshake(Handshake),
 
     StatusRequest,
-    StatusResponse(Lazy<StatusResponse<'a>>),
-    Ping(Lazy<Ping>),
+    StatusResponse(StatusResponse<'a>),
+    Ping(Ping),
 
-    LoginStart(Lazy<LoginStart>),
-    EncryptionRequest(Lazy<EncryptionRequest>),
-    EncryptionResponse(Lazy<EncryptionResponse>),
-    SetCompression(Lazy<SetCompression>),
-    LoginSuccess(Lazy<LoginSuccess>),
-    Disconnect(Lazy<Disconnect>),
+    LoginStart(LoginStart),
+    EncryptionRequest(EncryptionRequest),
+    EncryptionResponse(EncryptionResponse),
+    SetCompression(SetCompression),
+    LoginSuccess(LoginSuccess),
+    Disconnect(Disconnect),
 
-    PluginMessage(Lazy<PluginMessage>)
-}
-
-pub struct Lazy<T: Packet> {
-    buf: BytesMut,
-    version: ProtocolVersion,
-    f: fn(&mut BytesMut, ProtocolVersion) -> Result<T, Box<dyn Error>>
-}
-
-impl<T: Packet> Lazy<T> {
-    pub fn new(buf: BytesMut, version: ProtocolVersion) -> Self {
-        Self { buf, version, f: T::from_bytes }
-    }
-
-    pub fn get(&mut self) -> Result<T, Box<dyn Error>> {
-        (self.f)(&mut self.buf, self.version)
-    }
+    PluginMessage(PluginMessage)
 }

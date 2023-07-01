@@ -4,14 +4,14 @@ use bytes::{BytesMut, Buf};
 use once_cell::sync;
 use strum::IntoEnumIterator;
 
-use crate::protocol::{packet::{Packet, PacketType, RawPacket, handshake::Handshake, Lazy, status::{StatusRequest, StatusResponse, Ping}, login::{Disconnect, LoginStart, LoginSuccess, SetCompression, EncryptionRequest, EncryptionResponse}, play::PluginMessage}, ProtocolVersion, Direction};
+use crate::protocol::{packet::{Packet, PacketType, RawPacket, handshake::Handshake, status::{StatusRequest, StatusResponse, Ping}, login::{Disconnect, LoginStart, LoginSuccess, SetCompression, EncryptionRequest, EncryptionResponse}, play::PluginMessage}, ProtocolVersion, Direction};
 
-pub type PacketProducer = fn(BytesMut, ProtocolVersion) -> PacketType<'static>;
+pub type PacketProducer = fn(BytesMut, ProtocolVersion) -> Result<PacketType<'static>, Box<dyn Error>>;
 
 pub static HANDSHAKE_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
     registry.insert::<Handshake>(
-        |b, v| PacketType::Handshake(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::Handshake(Handshake::from_bytes(&mut b, v)?)), 
         Id::Serverbound(Mapping::Single(0x00))
     );
     registry
@@ -20,15 +20,15 @@ pub static HANDSHAKE_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
 pub static STATUS_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
     registry.insert::<StatusRequest>(
-        |_, _| PacketType::StatusRequest, 
+        |_, _| Ok(PacketType::StatusRequest), 
         Id::Serverbound(Mapping::Single(0x00))
     );
     registry.insert::<StatusResponse>(
-        |b, v| PacketType::StatusResponse(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::StatusResponse(StatusResponse::from_bytes(&mut b, v)?)), 
         Id::Clientbound(Mapping::Single(0x00))
     );
     registry.insert::<Ping>(
-        |b, v| PacketType::Ping(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::Ping(Ping::from_bytes(&mut b, v)?)), 
         Id::Both(Mapping::Single(0x01), Mapping::Single(0x01))
     );
     registry
@@ -37,27 +37,27 @@ pub static STATUS_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
 pub static LOGIN_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
     registry.insert::<Disconnect>(
-        |b, v| PacketType::Disconnect(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::Disconnect(Disconnect::from_bytes(&mut b, v)?)), 
         Id::Clientbound(Mapping::Single(0x00))
     );
     registry.insert::<LoginStart>(
-        |b, v| PacketType::LoginStart(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::LoginStart(LoginStart::from_bytes(&mut b, v)?)), 
         Id::Serverbound(Mapping::Single(0x00))
     );
     registry.insert::<EncryptionRequest>(
-        |b, v| PacketType::EncryptionRequest(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::EncryptionRequest(EncryptionRequest::from_bytes(&mut b, v)?)), 
         Id::Clientbound(Mapping::Single(0x01))
     );
     registry.insert::<EncryptionResponse>(
-        |b, v| PacketType::EncryptionResponse(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::EncryptionResponse(EncryptionResponse::from_bytes(&mut b, v)?)), 
         Id::Serverbound(Mapping::Single(0x01))
     );
     registry.insert::<SetCompression>(
-        |b, v| PacketType::SetCompression(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::SetCompression(SetCompression::from_bytes(&mut b, v)?)), 
         Id::Clientbound(Mapping::Single(0x03))
     );
     registry.insert::<LoginSuccess>(
-        |b, v| PacketType::LoginSuccess(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::LoginSuccess(LoginSuccess::from_bytes(&mut b, v)?)), 
         Id::Clientbound(Mapping::Single(0x02))
     );
     registry
@@ -66,11 +66,11 @@ pub static LOGIN_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
 pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
     registry.insert::<Disconnect>(
-        |b, v| PacketType::Disconnect(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::Disconnect(Disconnect::from_bytes(&mut b, v)?)), 
         Id::Clientbound(Mapping::List(vec![(0x1a, ProtocolVersion::V1_19_4), (0x17, ProtocolVersion::V1_19_3)]))
     );
     registry.insert::<PluginMessage>(
-        |b, v| PacketType::PluginMessage(Lazy::new(b, v)), 
+        |mut b, v| Ok(PacketType::PluginMessage(PluginMessage::from_bytes(&mut b, v)?)), 
         Id::Clientbound(Mapping::Single(0x17))
     );
     registry
@@ -176,11 +176,11 @@ impl ProtocolRegistry {
         self.id_packet.insert(id, p);
     }
 
-    pub fn decode(&self, mut buf: BytesMut, version: ProtocolVersion) -> PacketType {
+    pub fn decode(&self, mut buf: BytesMut, version: ProtocolVersion) -> Result<PacketType, Box<dyn Error>> {
         let id = buf.get_u8();
         match self.id_packet.get(&id) {
             Some(v) => v(buf, version),
-            None => PacketType::Raw(RawPacket { id, data: buf }),
+            None => Ok(PacketType::Raw(RawPacket { id, data: buf })),
         }
     }
 
