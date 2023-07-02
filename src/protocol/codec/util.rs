@@ -1,12 +1,14 @@
-use bytes::{BytesMut, Buf, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 
-use super::{error::VarintTooBig, decoder::DecodeState};
+use super::decoder::DecodeState;
+
+use anyhow::anyhow;
 
 pub const MAX_PACKET_SIZE: usize = 2097151;
 pub const MAX_HEADER_LENGTH: i32 = 3;
 
 #[inline(always)]
-pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> Result<DecodeState, VarintTooBig> {
+pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> anyhow::Result<DecodeState> {
     let max_read = i32::min(MAX_HEADER_LENGTH, src.len() as i32);
 
     for i in readed_bytes..max_read {
@@ -21,7 +23,7 @@ pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> Res
     if max_read < MAX_HEADER_LENGTH {
         return Ok(DecodeState::ReadVarint(value, max_read));
     }
-    Err(VarintTooBig) 
+    Err(anyhow!("Varint too big"))
 }
 
 #[inline(always)]

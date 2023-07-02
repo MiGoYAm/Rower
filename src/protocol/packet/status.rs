@@ -1,17 +1,15 @@
-use std::error::Error;
-
+use crate::protocol::util::put_byte_array;
+use crate::protocol::ProtocolVersion;
+use crate::Component;
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Serialize, Serializer};
-use crate::protocol::ProtocolVersion;
-use crate::protocol::util::put_byte_array;
-use crate::Component;
 
 use super::Packet;
 
 pub struct StatusRequest;
 
 impl Packet for StatusRequest {
-    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>> {
+    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self)
     }
 
@@ -58,18 +56,19 @@ pub struct Status {
     pub description: Motd,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub favicon: Option<String>,
-
     //pub previews_chat: bool,
     //pub enforces_secure_chat: bool,
 }
 
 pub struct StatusResponse<'a> {
-    pub status: &'a Vec<u8>
+    pub status: &'a Vec<u8>,
 }
 
 impl<'a> Packet for StatusResponse<'a> {
-    fn from_bytes(_buf: &mut BytesMut, _version: ProtocolVersion) -> Result<Self, Box<dyn Error>>
-    where Self: Sized {
+    fn from_bytes(_buf: &mut BytesMut, _version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
         todo!()
     }
 
@@ -83,7 +82,10 @@ pub struct Ping {
 }
 
 impl Packet for Ping {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>> where Self: Sized {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
         Ok(Self { payload: buf.get_i64() })
     }
 

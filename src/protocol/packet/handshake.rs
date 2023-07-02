@@ -1,7 +1,9 @@
 use super::Packet;
-use crate::protocol::{util::{get_varint, get_string, put_varint, put_string}, ProtocolVersion};
-use bytes::{Buf, BytesMut, BufMut};
-use std::error::Error;
+use crate::protocol::{
+    util::{get_string, get_varint, put_string, put_varint},
+    ProtocolVersion,
+};
+use bytes::{Buf, BufMut, BytesMut};
 
 pub struct Handshake {
     pub protocol: i32,
@@ -11,7 +13,7 @@ pub struct Handshake {
 }
 
 impl Packet for Handshake {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self, Box<dyn Error>> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             protocol: get_varint(buf)?,
             server_address: get_string(buf, 255)?,

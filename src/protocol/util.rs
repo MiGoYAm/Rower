@@ -1,8 +1,7 @@
-use std::error::Error;
-
+use anyhow::anyhow;
 use bytes::{Buf, BufMut, BytesMut};
 
-pub fn get_varint(buf: &mut impl Buf) -> Result<i32, Box<dyn Error>> {
+pub fn get_varint(buf: &mut impl Buf) -> anyhow::Result<i32> {
     let mut i = 0;
     let max_read = 5.min(buf.remaining());
 
@@ -15,7 +14,7 @@ pub fn get_varint(buf: &mut impl Buf) -> Result<i32, Box<dyn Error>> {
         }
     }
 
-    Err("Varint too long".into())
+    Err(anyhow!("Varint too long"))
 }
 
 pub fn put_varint(buf: &mut impl BufMut, value: u32) {
@@ -29,38 +28,36 @@ pub fn put_varint(buf: &mut impl BufMut, value: u32) {
         buf.put_u16(w as u16);
         buf.put_u8((w >> 14) as u8);
     } else if (value & (0xFFFFFFFF << 28)) == 0 {
-        let w = (value & 0x7F | 0x80) << 24 | (((value >> 7) & 0x7F | 0x80) << 16)
-                | ((value >> 14) & 0x7F | 0x80) << 8 | (value >> 21);
+        let w = (value & 0x7F | 0x80) << 24 | (((value >> 7) & 0x7F | 0x80) << 16) | ((value >> 14) & 0x7F | 0x80) << 8 | (value >> 21);
         buf.put_u32(w);
     } else {
-        let w = (value & 0x7F | 0x80) << 24 | ((value >> 7) & 0x7F | 0x80) << 16
-                | ((value >> 14) & 0x7F | 0x80) << 8 | ((value >> 21) & 0x7F | 0x80);
+        let w = (value & 0x7F | 0x80) << 24 | ((value >> 7) & 0x7F | 0x80) << 16 | ((value >> 14) & 0x7F | 0x80) << 8 | ((value >> 21) & 0x7F | 0x80);
         buf.put_u32(w);
         buf.put_u8((value >> 28) as u8);
     }
 }
 
-pub fn get_bool(buf: &mut dyn Buf) -> Result<bool, Box<dyn Error>> {
+pub fn get_bool(buf: &mut dyn Buf) -> anyhow::Result<bool> {
     match buf.get_u8() {
         0x00 => Ok(false),
         0x01 => Ok(true),
-        byte => Err(format!("couldn't get bool value from byte: {}", byte))?
+        byte => Err(anyhow!("Could not get bool value from byte: {}", byte)),
     }
 }
 
 pub fn put_bool(buf: &mut impl BufMut, b: bool) {
-    buf.put_u8(if b { 0x01 } else { 0x00 });
+    buf.put_u8(if b { 0x01 } else { 0x00 })
 }
 
-pub fn get_string(buf: &mut BytesMut, cap: i32) -> Result<String, Box<dyn Error>> {
+pub fn get_string(buf: &mut BytesMut, cap: i32) -> anyhow::Result<String> {
     let len = get_varint(buf)?;
     if len < 0 {
-        return Err("String lenght is negative".into());
+        return Err(anyhow!("String lenght is negative"));
     }
     if len > 3 * cap {
-        return Err("String is too long".into());
+        return Err(anyhow!("String is too long"));
     }
-    let bytes = buf.split_to(len as usize).clone();
+    let bytes = buf.split_to(len as usize);
     Ok(String::from_utf8(bytes.to_vec())?)
 }
 
@@ -76,11 +73,11 @@ pub fn put_str(buf: &mut BytesMut, s: &str) {
     buf.extend_from_slice(s);
 }
 
-pub fn get_byte_array(buf: &mut BytesMut) -> Result<Vec<u8>, Box<dyn Error>>{
+pub fn get_byte_array(buf: &mut BytesMut) -> anyhow::Result<Vec<u8>> {
     let lenght = get_varint(buf)? as usize;
 
     if lenght > buf.remaining() {
-        return Err("invalid byte array lenght".into());
+        return Err(anyhow!("Invalid byte array lenght"));
     }
 
     let mut array = Vec::with_capacity(lenght);

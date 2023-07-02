@@ -1,29 +1,29 @@
 #![allow(dead_code)]
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 pub enum Color {
-    RGB(u8, u8, u8),
+    Rgb(u8, u8, u8),
 }
 
 impl Color {
-    pub const BLACK: Color = Color::RGB(0, 0, 0);
-    pub const DARK_BLUE: Color = Color::RGB(0, 0, 42);
-    pub const DARK_GREEN: Color = Color::RGB(0, 42, 0);
-    pub const DARK_AQUA: Color = Color::RGB(0, 42, 42);
-    pub const DARK_RED: Color = Color::RGB(42, 0, 0);
-    pub const DARK_PURPLE: Color = Color::RGB(42, 0, 42);
-    pub const GOLD: Color = Color::RGB(42, 42, 0);
-    pub const GRAY: Color = Color::RGB(42, 42, 42);
-    pub const DARK_GRAY: Color = Color::RGB(21, 21, 21);
-    pub const BLUE: Color = Color::RGB(21, 21, 63);
-    pub const GREEN: Color = Color::RGB(21, 63, 21);
-    pub const AQUA: Color = Color::RGB(21, 63, 63);
-    pub const RED: Color = Color::RGB(63, 21, 21);
-    pub const LIGHT_PURPLE: Color = Color::RGB(63, 21, 63);
-    pub const YELLOW: Color = Color::RGB(63, 63, 21);
-    pub const WHITE: Color = Color::RGB(63, 63, 63);
+    pub const BLACK: Color = Color::Rgb(0, 0, 0);
+    pub const DARK_BLUE: Color = Color::Rgb(0, 0, 42);
+    pub const DARK_GREEN: Color = Color::Rgb(0, 42, 0);
+    pub const DARK_AQUA: Color = Color::Rgb(0, 42, 42);
+    pub const DARK_RED: Color = Color::Rgb(42, 0, 0);
+    pub const DARK_PURPLE: Color = Color::Rgb(42, 0, 42);
+    pub const GOLD: Color = Color::Rgb(42, 42, 0);
+    pub const GRAY: Color = Color::Rgb(42, 42, 42);
+    pub const DARK_GRAY: Color = Color::Rgb(21, 21, 21);
+    pub const BLUE: Color = Color::Rgb(21, 21, 63);
+    pub const GREEN: Color = Color::Rgb(21, 63, 21);
+    pub const AQUA: Color = Color::Rgb(21, 63, 63);
+    pub const RED: Color = Color::Rgb(63, 21, 21);
+    pub const LIGHT_PURPLE: Color = Color::Rgb(63, 21, 63);
+    pub const YELLOW: Color = Color::Rgb(63, 63, 21);
+    pub const WHITE: Color = Color::Rgb(63, 63, 63);
 }
 
 /* todo
@@ -38,26 +38,26 @@ pub enum Type {
 }
 
 impl Serialize for Type {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> anyhow::Result<S::Ok, S::Error>
     where S: serde::Serializer {
         match self {
-            Type::Text(text) => 
+            Type::Text(text) =>
                 serializer.serialize_newtype_variant("type", 0, "text", text),
             Type::Translation { translate, with } => {
-                let mut state = 
+                let mut state =
                     serializer.serialize_struct("translation", 2)?;
                 state.serialize_field("translate", translate)?;
                 state.serialize_field("with", with)?;
                 state.end()
             },
-            Type::Keybind(key) => 
+            Type::Keybind(key) =>
                 serializer.serialize_newtype_variant("type", 1, "key", key),
         }
     }
 }
 
 impl<'de> Deserialize<'de> for Type {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> anyhow::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de> {
         todo!()
@@ -68,13 +68,17 @@ impl<'de> Deserialize<'de> for Type {
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Type {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Translation {
         translate: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        with: Option<Vec<Component>>
+        with: Option<Vec<Component>>,
     },
-    Keybind { keybind: String }
+    Keybind {
+        keybind: String,
+    },
 }
 
 #[skip_serializing_none]
@@ -130,7 +134,7 @@ impl Component {
     pub fn overwrite_extra(&mut self, components: Vec<Component>) {
         self.extra = Some(components);
     }
-    
+
     pub fn append(&mut self, mut components: Vec<Component>) {
         let extra = self.extra.get_or_insert(Vec::new());
         extra.append(&mut components);

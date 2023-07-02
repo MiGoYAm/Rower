@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use bytes::{BytesMut, Buf};
+use bytes::{Buf, BytesMut};
 use flate2::read::ZlibDecoder;
 use libdeflater::Decompressor;
 use tokio_util::codec::Decoder;
@@ -21,7 +21,10 @@ pub struct MinecraftDecoder {
 
 impl MinecraftDecoder {
     pub fn new() -> Self {
-        Self { state: DecodeState::ReadVarint(0, 0), decompression: None }
+        Self {
+            state: DecodeState::ReadVarint(0, 0),
+            decompression: None,
+        }
     }
 
     pub fn enable_compression(&mut self) {
@@ -31,24 +34,24 @@ impl MinecraftDecoder {
 
 impl Decoder for MinecraftDecoder {
     type Item = BytesMut;
-    type Error = tokio::io::Error;
+    type Error = anyhow::Error;
 
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+    fn decode(&mut self, src: &mut BytesMut) -> anyhow::Result<Option<Self::Item>> {
         let length = match self.state {
             DecodeState::Data(length) => length,
             DecodeState::ReadVarint(value, readed_bytes) => {
-                self.state = read_varint(value, readed_bytes, src).unwrap();
+                self.state = read_varint(value, readed_bytes, src)?;
 
                 match self.state {
                     DecodeState::Data(length) => length,
-                    DecodeState::ReadVarint(_, _) => return Ok(None)
+                    DecodeState::ReadVarint(_, _) => return Ok(None),
                 }
-            },
+            }
         } as usize;
 
         src.reserve(length.saturating_sub(src.len()));
 
-        if src.len() < length { 
+        if src.len() < length {
             return Ok(None);
         }
         self.state = DecodeState::ReadVarint(0, 0);
@@ -56,7 +59,7 @@ impl Decoder for MinecraftDecoder {
         let mut src = src.split_to(length);
 
         if let Some(_decompressor) = &mut self.decompression {
-            let data_lenght = get_varint(&mut src).unwrap();
+            let data_lenght = get_varint(&mut src)?;
 
             if data_lenght == 0 {
                 return Ok(Some(src));
@@ -67,10 +70,10 @@ impl Decoder for MinecraftDecoder {
 
             //decompressor.zlib_decompress(&src, &mut buf).unwrap();
             let mut z = ZlibDecoder::new(src.reader());
-            let _result = z.read_to_end(&mut buf).unwrap();
+            let _result = z.read_to_end(&mut buf)?;
             //println!("in: {}, out: {}, result: {}", z.total_in(), z.total_out(), result);
 
-            return Ok(Some(BytesMut::from_iter(buf)))
+            return Ok(Some(BytesMut::from_iter(buf)));
         }
 
         Ok(Some(src))

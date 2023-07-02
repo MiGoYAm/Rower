@@ -1,15 +1,13 @@
 #![allow(dead_code)]
 
-use std::error::Error;
-
-use md5::{Md5, Digest};
+use anyhow::anyhow;
+use md5::{Digest, Md5};
 use strum::EnumIter;
 use uuid::Uuid;
 
-//pub mod connection;
+pub mod codec;
 pub mod packet;
 pub mod util;
-pub mod codec;
 
 pub const HANDSHAKE: u8 = 0;
 pub const STATUS: u8 = 1;
@@ -105,9 +103,9 @@ pub enum ProtocolVersion {
 }
 
 impl std::convert::TryFrom<i32> for ProtocolVersion {
-    type Error = Box<dyn Error>;
+    type Error = anyhow::Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: i32) -> anyhow::Result<Self> {
         match value {
             762 => Ok(ProtocolVersion::V1_19_4),
             761 => Ok(ProtocolVersion::V1_19_3),
@@ -146,11 +144,10 @@ impl std::convert::TryFrom<i32> for ProtocolVersion {
             47 => Ok(ProtocolVersion::V1_8),
             5 => Ok(ProtocolVersion::V1_7_6),
             4 => Ok(ProtocolVersion::V1_7_2),
-            v @ _ => Err(format!("Could not convert u32({}) to ProtocolVersion", v).into()),
+            version => Err(anyhow!("Could not convert u32({}) to ProtocolVersion", version)),
         }
     }
 }
-
 
 pub fn generate_offline_uuid(username: &String) -> Uuid {
     let mut hasher = Md5::new();

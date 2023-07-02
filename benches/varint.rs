@@ -1,5 +1,5 @@
-use bytes::{BufMut, BytesMut, Buf, buf::Chain};
-use criterion::{criterion_group, criterion_main, Criterion, BatchSize};
+use bytes::{buf::Chain, Buf, BufMut, BytesMut};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 #[inline(always)]
 fn write_varint_loop(buf: &mut BytesMut, mut value: u32) {
@@ -25,12 +25,10 @@ fn write_varint_best(buf: &mut BytesMut, value: u32) {
         buf.put_u16(w as u16);
         buf.put_u8((w >> 14) as u8);
     } else if (value & (0xFFFFFFFF << 28)) == 0 {
-        let w = (value & 0x7F | 0x80) << 24 | (((value >> 7) & 0x7F | 0x80) << 16)
-                | ((value >> 14) & 0x7F | 0x80) << 8 | (value >> 21);
+        let w = (value & 0x7F | 0x80) << 24 | (((value >> 7) & 0x7F | 0x80) << 16) | ((value >> 14) & 0x7F | 0x80) << 8 | (value >> 21);
         buf.put_u32(w);
     } else {
-        let w = (value & 0x7F | 0x80) << 24 | ((value >> 7) & 0x7F | 0x80) << 16
-                | ((value >> 14) & 0x7F | 0x80) << 8 | ((value >> 21) & 0x7F | 0x80);
+        let w = (value & 0x7F | 0x80) << 24 | ((value >> 7) & 0x7F | 0x80) << 16 | ((value >> 14) & 0x7F | 0x80) << 8 | ((value >> 21) & 0x7F | 0x80);
         buf.put_u32(w);
         buf.put_u8((value >> 28) as u8);
     }
@@ -74,33 +72,21 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("normal", |b| {
         let mut buf = BytesMut::with_capacity(268435456);
-        let mut range  = (0..=2_097_151).cycle();
+        let mut range = (0..=2_097_151).cycle();
 
-        b.iter_batched(
-            || range.next().unwrap(), 
-            |r| write_varint_loop(&mut buf, r), 
-            BatchSize::LargeInput
-        );
+        b.iter_batched(|| range.next().unwrap(), |r| write_varint_loop(&mut buf, r), BatchSize::LargeInput);
     });
     group.bench_function("best", |b| {
         let mut buf = BytesMut::with_capacity(268435456);
-        let mut range  = (0..=2_097_151).cycle();
+        let mut range = (0..=2_097_151).cycle();
 
-        b.iter_batched(
-            || range.next().unwrap(), 
-            |r| write_varint_best(&mut buf, r), 
-            BatchSize::LargeInput
-        );
+        b.iter_batched(|| range.next().unwrap(), |r| write_varint_best(&mut buf, r), BatchSize::LargeInput);
     });
     group.bench_function("best short", |b| {
         let mut buf = BytesMut::with_capacity(268435456);
-        let mut range  = (0..=2_097_151).cycle();
+        let mut range = (0..=2_097_151).cycle();
 
-        b.iter_batched(
-            || range.next().unwrap(), 
-            |r| write_varint_best_short(&mut buf, r), 
-            BatchSize::LargeInput
-        );
+        b.iter_batched(|| range.next().unwrap(), |r| write_varint_best_short(&mut buf, r), BatchSize::LargeInput);
     });
     group.finish()
 
@@ -112,8 +98,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         let mut range  = (0..=2_097_151).cycle();
 
         b.iter_batched(
-            || range.next().unwrap(), 
-            |r| write_varint_loop(&mut buf, r), 
+            || range.next().unwrap(),
+            |r| write_varint_loop(&mut buf, r),
             BatchSize::LargeInput
         );
     });
@@ -122,8 +108,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         let mut range  = (0..=2_097_151).cycle();
 
         b.iter_batched(
-            || range.next().unwrap(), 
-            |r| write_varint_best(&mut buf, r), 
+            || range.next().unwrap(),
+            |r| write_varint_best(&mut buf, r),
             BatchSize::LargeInput
         );
     });
@@ -132,8 +118,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         let mut range  = (0..=2_097_151).cycle();
 
         b.iter_batched(
-            || range.next().unwrap(), 
-            |r| write_varint_best_short(&mut buf, r), 
+            || range.next().unwrap(),
+            |r| write_varint_best_short(&mut buf, r),
             BatchSize::LargeInput
         );
     });

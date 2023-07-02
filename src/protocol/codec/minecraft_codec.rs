@@ -1,13 +1,24 @@
-use std::{error::Error, io::ErrorKind, net::SocketAddr};
+use anyhow::anyhow;
+use std::net::SocketAddr;
 
-use bytes::{BytesMut, Buf};
+use bytes::{Buf, BytesMut};
 use futures::{SinkExt, StreamExt};
-use tokio::net::{TcpStream, tcp::{OwnedWriteHalf, OwnedReadHalf}};
+use tokio::net::{
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
+    TcpStream,
+};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::protocol::{packet::{PacketType, Packet, RawPacket}, Direction, ProtocolVersion, HANDSHAKE, STATUS, LOGIN, PLAY};
+use crate::protocol::{
+    packet::{Packet, PacketType, RawPacket},
+    Direction, ProtocolVersion, HANDSHAKE, LOGIN, PLAY, STATUS,
+};
 
-use super::{decoder::MinecraftDecoder, encoder::MinecraftEncoder, registry::{ProtocolRegistry, HANDSHAKE_REG, StateRegistry, STATUS_REG, LOGIN_REG, PLAY_REG}};
+use super::{
+    decoder::MinecraftDecoder,
+    encoder::MinecraftEncoder,
+    registry::{ProtocolRegistry, StateRegistry, HANDSHAKE_REG, LOGIN_REG, PLAY_REG, STATUS_REG},
+};
 
 pub struct Connection {
     pub protocol: ProtocolVersion,
@@ -15,7 +26,7 @@ pub struct Connection {
 
     send_registry: &'static ProtocolRegistry,
     receive_registry: &'static ProtocolRegistry,
-    
+
     framed_read: FramedRead<OwnedReadHalf, MinecraftDecoder>,
     framed_write: FramedWrite<OwnedWriteHalf, MinecraftEncoder>,
 }
@@ -25,7 +36,7 @@ impl Connection {
         let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction, &ProtocolVersion::Unknown);
         let (reader, writer) = stream.into_split();
 
-        Self { 
+        Self {
             protocol: version,
             direction,
 
@@ -41,7 +52,7 @@ impl Connection {
         Self::create(stream, ProtocolVersion::Unknown, direction)
     }
 
-    pub async fn connect(addr: SocketAddr, version: ProtocolVersion, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn connect(addr: SocketAddr, version: ProtocolVersion, direction: Direction) -> anyhow::Result<Self> {
         Ok(Self::create(TcpStream::connect(addr).await?, version, direction))
     }
 
@@ -51,7 +62,7 @@ impl Connection {
             STATUS => &STATUS_REG,
             LOGIN => &LOGIN_REG,
             PLAY => &PLAY_REG,
-            _ => panic!("invalid state")
+            _ => panic!("invalid state"),
         };
         self.set_registry(registry);
     }
@@ -60,63 +71,56 @@ impl Connection {
         (self.receive_registry, self.send_registry) = registry.get_registry(&self.direction, &self.protocol);
     }
 
-    /*
-    pub async fn next_packet(&mut self) -> Result<PacketType, Box<dyn Error>> {
+    pub async fn next_packet(&mut self) -> anyhow::Result<PacketType> {
         let frame = self.read_frame().await?;
 
         self.receive_registry.decode(frame, self.protocol)
     }
-    */
-    pub async fn next_packet(&mut self) -> Option<PacketType> {
-        let frame = if let Ok(buf) = self.read_frame().await { buf } else { return None };
 
-        self.receive_registry.decode(frame, self.protocol).ok()
-    }
-
-    pub async fn read_packet<T: Packet + 'static>(&mut self) -> Result<T, Box<dyn Error>> {
+    pub async fn read_packet<T: Packet + 'static>(&mut self) -> anyhow::Result<T> {
         let mut frame = self.read_frame().await?;
         let id = frame.get_u8();
         let registry_id = self.receive_registry.get_id::<T>()?;
 
         if registry_id != &id {
-            return Err(format!("Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id).into());
+            return Err(anyhow!("Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id));
         }
 
         T::from_bytes(&mut frame, self.protocol)
     }
 
-    async fn read_frame(&mut self) -> Result<BytesMut, tokio::io::Error> {
+    async fn read_frame(&mut self) -> anyhow::Result<BytesMut> {
         match self.framed_read.next().await {
             Some(r) => r,
-            None => Err(ErrorKind::ConnectionAborted.into()),
+            None => Err(anyhow!("Connection aborted")),
         }
     }
 
-    pub async fn write_raw_packet(&mut self, packet: RawPacket) -> Result<(), Box<dyn Error>> {
+    pub async fn write_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
         self.framed_write.send(packet).await
     }
 
-    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
+    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
         let raw_packet = self.serialize_packet(packet)?;
         self.framed_write.send(raw_packet).await
     }
 
-    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<(), Box<dyn Error>> {
+    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
         let raw_packet = self.serialize_packet(packet)?;
         self.framed_write.feed(raw_packet).await
     }
 
-    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> Result<RawPacket, Box<dyn Error>> {
+    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> anyhow::Result<RawPacket> {
         let mut raw_packet = RawPacket {
-            id: self.send_registry.get_id::<T>()?.clone(),
-            data: BytesMut::new()
+            id: *self.send_registry.get_id::<T>()?,
+            data: BytesMut::new(),
         };
 
         packet.put_buf(&mut raw_packet.data, self.protocol);
         Ok(raw_packet)
     }
 
-    pub async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn shutdown(&mut self) -> anyhow::Result<()> {
         self.framed_write.close().await
     }
 
