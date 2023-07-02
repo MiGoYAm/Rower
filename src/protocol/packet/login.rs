@@ -19,16 +19,17 @@ impl Packet for LoginStart {
     {
         Ok(Self { 
             username: get_string(buf, 16)?,
-            uuid: if get_bool(buf)? 
-            { Some(Uuid::from_u128(buf.get_u128())) } 
-            else { None }
+            uuid: if get_bool(buf)? { Some(Uuid::from_u128(buf.get_u128())) } else { None }
         })
     }
 
     fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_string(buf, &self.username);
         match self.uuid {
-            Some(uuid) => buf.put_u128(uuid.as_u128()),
+            Some(uuid) => {
+                put_bool(buf, true);
+                buf.extend_from_slice(uuid.as_bytes());
+            },
             None => put_bool(buf, false)
         }
     }
@@ -139,7 +140,7 @@ impl Packet for EncryptionResponse {
 pub struct LoginPluginRequest {
     pub message_id: i32,
     pub channel: String,
-    pub data: Vec<u8>
+    pub data: BytesMut
 }
 
 impl Packet for LoginPluginRequest {
@@ -148,7 +149,7 @@ impl Packet for LoginPluginRequest {
         Ok(Self { 
             message_id: get_varint(buf)?, 
             channel: get_string(buf, 32767)?, 
-            data: buf.to_vec() 
+            data: buf.split()
         })
     }
 
@@ -162,7 +163,7 @@ impl Packet for LoginPluginRequest {
 pub struct LoginPluginResponse {
     pub message_id: i32,
     pub successful: bool,
-    pub data: Option<Vec<u8>> 
+    pub data: Option<BytesMut> 
 }
 
 impl Packet for LoginPluginResponse {
@@ -173,7 +174,7 @@ impl Packet for LoginPluginResponse {
         Ok(Self {
             message_id,
             successful,
-            data: if successful { Some(buf.to_vec()) } else { None }
+            data: if successful { Some(buf.split()) } else { None }
         })
     }
 

@@ -1,4 +1,3 @@
-use bytes::BytesMut;
 use config::Server;
 use handlers::STATES;
 use log::{info, error};
@@ -9,11 +8,10 @@ use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompressi
 use protocol::{LOGIN, STATUS, Direction, PLAY};
 use std::error::Error;
 use tokio::net::{TcpListener, TcpStream};
-use uuid::Uuid;
 
 use crate::component::Component;
 
-use crate::protocol::ProtocolVersion;
+use crate::protocol::{ProtocolVersion, generate_offline_uuid};
 use crate::protocol::packet::status::{Ping, StatusRequest, StatusResponse};
 use crate::protocol::util::{put_str, get_string};
 
@@ -39,25 +37,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn handle(stream: TcpStream) {
-    let connection = Connection::new(stream, Direction::Serverbound);
-
-    if let Err(err) = handle_handshake(connection).await {
+    if let Err(err) = handle_handshake(Connection::new(stream, Direction::Serverbound)).await {
         error!("{}", err);
     }
 }
 
 async fn handle_handshake(mut client: Connection) -> Result<(), Box<dyn Error>> {
-    let Handshake { state, protocol, ..} = client.read_packet().await?;
+    let Handshake { state, protocol, .. } = client.read_packet().await?;
+
+    client.protocol = protocol.try_into()?;
 
     match state {
-        STATUS => handle_status(client).await?,
-        LOGIN => {
-            client.protocol = (protocol as u32).try_into()?;
-            handle_login(client).await?;
-        },
-        _ => { /* error handle */ }
+        STATUS => handle_status(client).await,
+        LOGIN => handle_login(client).await,
+        _ => Err("handshake packet with wrong next state".into())
     }
-    Ok(())
 }
 
 async fn handle_status(mut client: Connection) -> Result<(), Box<dyn Error>> {
@@ -75,10 +69,10 @@ async fn handle_login(mut client: Connection) -> Result<(), Box<dyn Error>> {
     client.change_state(LOGIN);
     let LoginStart { username, .. } = client.read_packet().await?;
 
-    if client.protocol < ProtocolVersion::V1_19_2  {
+    if client.protocol < ProtocolVersion::V1_19_2 {
         return client.write_packet(Disconnect {
-            reason: Component::text("We support versions above 1.19.1".to_string())
-        }).await;
+            reason: Component::text_str("We support versions above 1.19.1")
+        }).await
     }
 
     if config::ONLINE {}
@@ -90,7 +84,7 @@ async fn handle_login(mut client: Connection) -> Result<(), Box<dyn Error>> {
  
     client.write_packet(LoginSuccess {
         username: username.clone(),
-        uuid: Uuid::new_v4(),
+        uuid: generate_offline_uuid(&username),
     }).await?;
 
     let initial_server = &config::SERVERS[0];
@@ -99,7 +93,7 @@ async fn handle_login(mut client: Connection) -> Result<(), Box<dyn Error>> {
     handle_play(client, server).await
 }
 
-async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(), Box<dyn Error>>{
+async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(), Box<dyn Error>> {
     client.change_state(PLAY);
     loop {
         tokio::select! {
@@ -108,15 +102,11 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
                     PacketType::Raw(packet) => client.write_raw_packet(packet).await?,
                     PacketType::PluginMessage(mut packet) => {
                         if packet.channel == "minecraft:brand" {
-                            let mut buf = BytesMut::from(packet.data.as_slice());
-
-                            let mut brand = get_string(&mut buf, 32700)?;
+                            let mut brand = get_string(&mut packet.data, 32700)?;
                             brand.push_str(" inside a bike");
 
-                            buf.clear();
-                            put_str(&mut buf, &brand);
-
-                            packet.data = buf.to_vec();
+                            packet.data.clear();
+                            put_str(&mut packet.data, &brand);
                         }
                         client.write_packet(packet).await?;
                     },
@@ -140,12 +130,12 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> Result<(
 }
 
 async fn create_backend_connection(backend_server: &Server, version: ProtocolVersion, username: String) -> Result<Connection, Box<dyn Error>> {
-    let mut server = Connection::connect(backend_server.ip, version, Direction::Clientbound).await?;
+    let mut server = Connection::connect(backend_server.address, version, Direction::Clientbound).await?;
 
     server.queue_packet(Handshake { 
         protocol: version as i32, 
-        server_address: "127.0.0.1".to_string(), 
-        port: 25566, 
+        server_address: backend_server.address.ip().to_string(), 
+        port: backend_server.address.port(), 
         state: LOGIN 
     }).await?;
 

@@ -109,6 +109,10 @@ impl Component {
         }
     }
 
+    pub fn text_str(text: &str) -> Self {
+        Self::text(text.to_string())
+    }
+
     pub fn content(content: Type) -> Self {
         Self {
             content,

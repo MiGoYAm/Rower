@@ -1,4 +1,6 @@
-pub const ADDRESS: &str = "127.0.0.1:25565";
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+
+pub const ADDRESS: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 25565);
 
 pub const THRESHOLD: i32 = 256;
 pub const ONLINE: bool = false;
@@ -6,11 +8,11 @@ pub const ONLINE: bool = false;
 pub const SERVERS: [Server; 1] = [
     Server {
         name: "main",
-        ip: "127.0.0.1:25566"
+        address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25566)
     }
 ];
 
 pub struct Server {
     pub name: &'static str,
-    pub ip: &'static str
+    pub address: SocketAddr
 }

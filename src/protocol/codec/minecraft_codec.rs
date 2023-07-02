@@ -1,4 +1,4 @@
-use std::{error::Error, io::ErrorKind};
+use std::{error::Error, io::ErrorKind, net::SocketAddr};
 
 use bytes::{BytesMut, Buf};
 use futures::{SinkExt, StreamExt};
@@ -41,7 +41,7 @@ impl Connection {
         Self::create(stream, ProtocolVersion::Unknown, direction)
     }
 
-    pub async fn connect(addr: &str, version: ProtocolVersion, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn connect(addr: SocketAddr, version: ProtocolVersion, direction: Direction) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self::create(TcpStream::connect(addr).await?, version, direction))
     }
 

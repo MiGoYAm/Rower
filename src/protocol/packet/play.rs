@@ -6,7 +6,7 @@ use super::Packet;
 
 pub struct PluginMessage {
     pub channel: String,
-    pub data: Vec<u8>
+    pub data: BytesMut
 }
 
 impl Packet for PluginMessage {
@@ -14,7 +14,7 @@ impl Packet for PluginMessage {
     where Self: Sized {
         Ok(Self {
             channel: get_string(buf, 32700)?,
-            data: buf.to_vec()
+            data: buf.split()
         })
     }
 

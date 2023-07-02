@@ -2,7 +2,9 @@
 
 use std::error::Error;
 
+use md5::{Md5, Digest};
 use strum::EnumIter;
+use uuid::Uuid;
 
 //pub mod connection;
 pub mod packet;
@@ -59,10 +61,10 @@ pub const V1_8: i32 = 47;
 pub const V1_7_6: i32 = 5;
 pub const V1_7_2: i32 = 4;
 
-#[repr(u32)]
+#[repr(i32)]
 #[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Hash, EnumIter)]
 pub enum ProtocolVersion {
-    Unknown = 0,
+    Unknown = -1,
     V1_19_4 = 762,
     V1_19_3 = 761,
     V1_19_2 = 760,
@@ -102,10 +104,10 @@ pub enum ProtocolVersion {
     V1_7_2 = 4,
 }
 
-impl std::convert::TryFrom<u32> for ProtocolVersion {
+impl std::convert::TryFrom<i32> for ProtocolVersion {
     type Error = Box<dyn Error>;
 
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
             762 => Ok(ProtocolVersion::V1_19_4),
             761 => Ok(ProtocolVersion::V1_19_3),
@@ -147,4 +149,13 @@ impl std::convert::TryFrom<u32> for ProtocolVersion {
             v @ _ => Err(format!("Could not convert u32({}) to ProtocolVersion", v).into()),
         }
     }
+}
+
+
+pub fn generate_offline_uuid(username: &String) -> Uuid {
+    let mut hasher = Md5::new();
+    hasher.update(("OfflinePlayer:".to_string() + username).as_bytes());
+    let hash = hasher.finalize();
+
+    uuid::Builder::from_md5_bytes(hash.into()).into_uuid()
 }

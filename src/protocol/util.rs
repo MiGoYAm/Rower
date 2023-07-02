@@ -49,9 +49,7 @@ pub fn get_bool(buf: &mut dyn Buf) -> Result<bool, Box<dyn Error>> {
 }
 
 pub fn put_bool(buf: &mut impl BufMut, b: bool) {
-    buf.put_u8(
-        if b { 0x01 } else { 0x00 }
-    );
+    buf.put_u8(if b { 0x01 } else { 0x00 });
 }
 
 pub fn get_string(buf: &mut BytesMut, cap: i32) -> Result<String, Box<dyn Error>> {
@@ -62,7 +60,7 @@ pub fn get_string(buf: &mut BytesMut, cap: i32) -> Result<String, Box<dyn Error>
     if len > 3 * cap {
         return Err("String is too long".into());
     }
-    let bytes = buf.split_to(len as usize);
+    let bytes = buf.split_to(len as usize).clone();
     Ok(String::from_utf8(bytes.to_vec())?)
 }
 
