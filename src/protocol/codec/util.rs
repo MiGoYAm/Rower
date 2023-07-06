@@ -21,7 +21,7 @@ pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> any
     }
 
     if max_read < MAX_HEADER_LENGTH {
-        return Ok(DecodeState::ReadVarint(value, max_read));
+        return Ok(DecodeState::Length(value, max_read));
     }
     Err(anyhow!("Varint too big"))
 }

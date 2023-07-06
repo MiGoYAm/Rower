@@ -27,19 +27,22 @@ impl MinecraftEncoder {
         })
     }
 
+    /*
     fn convert_packet(&self, packet: RawPacket) -> BytesMut {
         let mut data = BytesMut::with_capacity(packet.data.len() + 1);
         data.put_u8(packet.id);
         data.extend_from_slice(&packet.data);
         data
     }
+    */
 }
 
 impl Encoder<RawPacket> for MinecraftEncoder {
     type Error = anyhow::Error;
 
     fn encode(&mut self, item: RawPacket, dst: &mut BytesMut) -> anyhow::Result<()> {
-        let packet = self.convert_packet(item);
+        //let packet = self.convert_packet(item);
+        let packet = item.buffer;
 
         let result = if let Some(Compression { threshold, compressor }) = &mut self.compression {
             let mut result = BytesMut::with_capacity(packet.len() + 3);

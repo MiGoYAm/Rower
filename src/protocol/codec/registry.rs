@@ -1,7 +1,7 @@
 use std::{any::TypeId, collections::HashMap};
 
 use anyhow::anyhow;
-use bytes::{Buf, BytesMut};
+use bytes::BytesMut;
 use once_cell::sync;
 use strum::IntoEnumIterator;
 
@@ -189,10 +189,10 @@ impl ProtocolRegistry {
     }
 
     pub fn decode(&self, mut data: BytesMut, version: ProtocolVersion) -> anyhow::Result<PacketType> {
-        let id = data.get_u8();
+        let id = data[0];
         match self.id_packet.get(&id) {
-            Some(function) => function(data, version),
-            None => Ok(PacketType::Raw(RawPacket { id, data })),
+            Some(function) => function(data.split_off(1), version),
+            None => Ok(PacketType::Raw(RawPacket { buffer: data })),
         }
     }
 

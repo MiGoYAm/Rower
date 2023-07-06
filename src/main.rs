@@ -6,7 +6,7 @@ use protocol::codec::minecraft_codec::Connection;
 use protocol::packet::handshake::Handshake;
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
 use protocol::packet::PacketType;
-use protocol::{Direction, LOGIN, PLAY, STATUS};
+use protocol::{Direction, LOGIN, STATUS, State};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::component::Component;
@@ -54,7 +54,7 @@ async fn handle_handshake(mut client: Connection) -> anyhow::Result<()> {
 }
 
 async fn handle_status(mut client: Connection) -> anyhow::Result<()> {
-    client.change_state(STATUS);
+    client.change_state(State::Status);
 
     client.read_packet::<StatusRequest>().await?;
 
@@ -65,7 +65,7 @@ async fn handle_status(mut client: Connection) -> anyhow::Result<()> {
 }
 
 async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
-    client.change_state(LOGIN);
+    client.change_state(State::Login);
     let LoginStart { username, .. } = client.read_packet().await?;
 
     if client.protocol < ProtocolVersion::V1_19_2 {
@@ -80,7 +80,7 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
         client.queue_packet(SetCompression {
             threshold: config::THRESHOLD,
         }).await?;
-        client.enable_compression(config::THRESHOLD as u32);
+        client.enable_compression(config::THRESHOLD);
     }
 
     client.write_packet(LoginSuccess {
@@ -95,7 +95,8 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
 }
 
 async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::Result<()> {
-    client.change_state(PLAY);
+    client.change_state(State::Play);
+    server.change_state(State::Play);
     loop {
         tokio::select! {
             Ok(packet) = server.next_packet() => {
@@ -140,26 +141,23 @@ async fn create_backend_connection(backend_server: &Server, version: ProtocolVer
         state: LOGIN,
     }).await?;
 
-    server.change_state(LOGIN);
+    server.change_state(State::Login);
     server.write_packet(LoginStart { 
         username, 
         uuid: None 
     }).await?;
 
-    match server.next_packet().await? {
-        PacketType::EncryptionRequest(_) => panic!("encryption is not implemented"),
-        PacketType::SetCompression(SetCompression { threshold }) => {
-            if threshold > -1 {
-                server.enable_compression(threshold as u32);
+    loop {
+        return match server.next_packet().await? {
+            PacketType::EncryptionRequest(_) => Err(anyhow!("Encryption is not implemented")),
+            PacketType::SetCompression(SetCompression { threshold }) => {
+                server.enable_compression(threshold);
+                continue;
             }
-
-            server.read_packet::<LoginSuccess>().await?;
-            server.change_state(PLAY);
-        }
-        PacketType::LoginSuccess(_) => server.change_state(PLAY),
-        PacketType::Disconnect(_) => println!("disconnect"),
-        _ => println!("login idk"),
+            PacketType::LoginSuccess(_) => Ok(server),
+            PacketType::LoginPluginRequest(_) => Err(anyhow!("login plugin request")),
+            PacketType::Disconnect(_) => Err(anyhow!("disconnect")),
+            _ => Err(anyhow!("login idk")),
+        };
     }
-
-    Ok(server)
 }

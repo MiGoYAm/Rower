@@ -5,6 +5,8 @@ use md5::{Digest, Md5};
 use strum::EnumIter;
 use uuid::Uuid;
 
+use self::codec::registry::{StateRegistry, HANDSHAKE_REG, STATUS_REG, LOGIN_REG, PLAY_REG};
+
 pub mod codec;
 pub mod packet;
 pub mod util;
@@ -13,6 +15,24 @@ pub const HANDSHAKE: u8 = 0;
 pub const STATUS: u8 = 1;
 pub const LOGIN: u8 = 2;
 pub const PLAY: u8 = 3;
+
+pub enum State {
+    Handshake,
+    Status,
+    Login,
+    Play
+}
+
+impl State {
+    pub fn registry(&self) -> &'static once_cell::sync::Lazy<StateRegistry> {
+        match self {
+            State::Handshake => &HANDSHAKE_REG,
+            State::Status => &STATUS_REG,
+            State::Login => &LOGIN_REG,
+            State::Play => &PLAY_REG,
+        }
+    }
+}
 
 pub enum Direction {
     Clientbound,

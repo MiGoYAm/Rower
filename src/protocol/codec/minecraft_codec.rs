@@ -11,13 +11,13 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::protocol::{
     packet::{Packet, PacketType, RawPacket},
-    Direction, ProtocolVersion, HANDSHAKE, LOGIN, PLAY, STATUS,
+    Direction, ProtocolVersion, State,
 };
 
 use super::{
     decoder::MinecraftDecoder,
     encoder::MinecraftEncoder,
-    registry::{ProtocolRegistry, StateRegistry, HANDSHAKE_REG, LOGIN_REG, PLAY_REG, STATUS_REG},
+    registry::{ProtocolRegistry, StateRegistry, HANDSHAKE_REG},
 };
 
 pub struct Connection {
@@ -56,15 +56,8 @@ impl Connection {
         Ok(Self::create(TcpStream::connect(addr).await?, version, direction))
     }
 
-    pub fn change_state(&mut self, state: u8) {
-        let registry = match state {
-            HANDSHAKE => &HANDSHAKE_REG,
-            STATUS => &STATUS_REG,
-            LOGIN => &LOGIN_REG,
-            PLAY => &PLAY_REG,
-            _ => panic!("invalid state"),
-        };
-        self.set_registry(registry);
+    pub fn change_state(&mut self, state: State) {
+        self.set_registry(state.registry());
     }
 
     fn set_registry(&mut self, registry: &'static StateRegistry) {
@@ -79,8 +72,8 @@ impl Connection {
 
     pub async fn read_packet<T: Packet + 'static>(&mut self) -> anyhow::Result<T> {
         let mut frame = self.read_frame().await?;
-        let id = frame.get_u8();
         let registry_id = self.receive_registry.get_id::<T>()?;
+        let id = frame.get_u8();
 
         if registry_id != &id {
             return Err(anyhow!("Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id));
@@ -111,12 +104,19 @@ impl Connection {
     }
 
     fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> anyhow::Result<RawPacket> {
+        /* 
         let mut raw_packet = RawPacket {
             id: *self.send_registry.get_id::<T>()?,
             data: BytesMut::new(),
         };
+        */
+        let mut raw_packet = RawPacket::new();
+        raw_packet.set_id(*self.send_registry.get_id::<T>()?);
 
-        packet.put_buf(&mut raw_packet.data, self.protocol);
+        let mut data = raw_packet.data();
+        packet.put_buf(&mut data, self.protocol);
+        raw_packet.buffer.unsplit(data);
+
         Ok(raw_packet)
     }
 
@@ -124,9 +124,12 @@ impl Connection {
         self.framed_write.close().await
     }
 
-    pub fn enable_compression(&mut self, threshold: u32) {
-        self.framed_read.decoder_mut().enable_compression();
-        self.framed_write.encoder_mut().enable_compression(threshold);
+    pub fn enable_compression(&mut self, threshold: i32) {
+        if threshold > -1 {
+            let threshold = threshold as u32;
+            self.framed_read.decoder_mut().enable_compression();
+            self.framed_write.encoder_mut().enable_compression(threshold);
+        }
     }
 
     pub fn enable_encryption(&mut self) {

@@ -1,7 +1,4 @@
-use std::io::Read;
-
-use bytes::{Buf, BytesMut};
-use flate2::read::ZlibDecoder;
+use bytes::BytesMut;
 use libdeflater::Decompressor;
 use tokio_util::codec::Decoder;
 
@@ -10,25 +7,30 @@ use crate::protocol::util::get_varint;
 use super::util::read_varint;
 
 pub enum DecodeState {
-    ReadVarint(i32, i32),
+    Length(i32, i32),
     Data(i32),
+}
+
+struct Decompression {
+    buf: BytesMut,
+    decompressor: Decompressor
 }
 
 pub struct MinecraftDecoder {
     state: DecodeState,
-    decompression: Option<Decompressor>,
+    decompression: Option<Decompression>,
 }
 
 impl MinecraftDecoder {
     pub fn new() -> Self {
         Self {
-            state: DecodeState::ReadVarint(0, 0),
+            state: DecodeState::Length(0, 0),
             decompression: None,
         }
     }
 
     pub fn enable_compression(&mut self) {
-        self.decompression = Some(Decompressor::new())
+        self.decompression = Some(Decompression { buf: BytesMut::with_capacity(1024), decompressor: Decompressor::new() })
     }
 }
 
@@ -38,15 +40,15 @@ impl Decoder for MinecraftDecoder {
 
     fn decode(&mut self, src: &mut BytesMut) -> anyhow::Result<Option<Self::Item>> {
         let length = match self.state {
-            DecodeState::Data(length) => length,
-            DecodeState::ReadVarint(value, readed_bytes) => {
+            DecodeState::Length(value, readed_bytes) => {
                 self.state = read_varint(value, readed_bytes, src)?;
 
                 match self.state {
                     DecodeState::Data(length) => length,
-                    DecodeState::ReadVarint(_, _) => return Ok(None),
+                    DecodeState::Length(_, _) => return Ok(None),
                 }
             }
+            DecodeState::Data(length) => length,
         } as usize;
 
         src.reserve(length.saturating_sub(src.len()));
@@ -54,28 +56,33 @@ impl Decoder for MinecraftDecoder {
         if src.len() < length {
             return Ok(None);
         }
-        self.state = DecodeState::ReadVarint(0, 0);
+        self.state = DecodeState::Length(0, 0);
 
-        let mut src = src.split_to(length);
+        let mut data = src.split_to(length);
 
-        if let Some(_decompressor) = &mut self.decompression {
-            let data_lenght = get_varint(&mut src)?;
+        if let Some(Decompression { buf, decompressor}) = &mut self.decompression {
+            let data_length = get_varint(&mut data)?;
 
-            if data_lenght == 0 {
-                return Ok(Some(src));
+            if data_length == 0 {
+                return Ok(Some(data));
             }
 
-            //let mut buf = BytesMut::with_capacity(data_lenght as usize);
-            let mut buf = Vec::with_capacity(data_lenght as usize);
+            let data_length = data_length as usize;
+            buf.reserve(data_length);
+            unsafe {
+                buf.set_len(data_length);
+            }
+            let mut buf = buf.split_to(data_length);
 
-            //decompressor.zlib_decompress(&src, &mut buf).unwrap();
-            let mut z = ZlibDecoder::new(src.reader());
-            let _result = z.read_to_end(&mut buf)?;
-            //println!("in: {}, out: {}, result: {}", z.total_in(), z.total_out(), result);
+            let result = decompressor.zlib_decompress(&data, &mut buf)?;
 
-            return Ok(Some(BytesMut::from_iter(buf)));
+            if data_length != buf.len() {
+                println!("data_lenght: {}, readed_bytes: {}, result: {}", data_length, buf.len(), result);
+            }
+            
+            return Ok(Some(buf));
         }
 
-        Ok(Some(src))
+        Ok(Some(data))
     }
 }
