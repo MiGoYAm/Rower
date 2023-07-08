@@ -1,4 +1,4 @@
-use bytes::{buf::Chain, Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 #[inline(always)]
@@ -48,26 +48,7 @@ fn write_varint_best_short(buf: &mut BytesMut, value: u32) {
     }
 }
 
-#[inline(always)]
-fn extend() -> BytesMut {
-    let mut header = BytesMut::with_capacity(2);
-    let data = BytesMut::with_capacity(1048576 * 1);
-    header.extend_from_slice(&data);
-    header
-}
-#[inline(always)]
-fn chain() -> Chain<BytesMut, BytesMut> {
-    let header = BytesMut::with_capacity(2);
-    let data = BytesMut::with_capacity(1048576 * 1);
-    header.chain(data)
-}
-
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("buf");
-    group.bench_function("extend", |b| b.iter(|| extend()));
-    group.bench_function("chain", |b| b.iter(|| chain()));
-    group.finish();
-
     let mut group = c.benchmark_group("read varint");
 
     group.bench_function("normal", |b| {

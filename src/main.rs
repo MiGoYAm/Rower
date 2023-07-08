@@ -1,5 +1,6 @@
+use std::net::SocketAddr;
+
 use anyhow::anyhow;
-use config::Server;
 use handlers::STATES;
 use log::{error, info};
 use protocol::codec::minecraft_codec::Connection;
@@ -11,6 +12,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::component::Component;
 
+use crate::config::CONFIG;
 use crate::protocol::packet::status::{Ping, StatusRequest, StatusResponse};
 use crate::protocol::util::{get_string, put_str};
 use crate::protocol::{generate_offline_uuid, ProtocolVersion};
@@ -24,9 +26,9 @@ mod protocol;
 async fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(log::Level::Info)?;
 
-    let listener = TcpListener::bind(config::ADDRESS).await?;
+    let listener = TcpListener::bind(CONFIG.address).await?;
 
-    info!("Listening on {}", config::ADDRESS);
+    info!("Listening on {}", CONFIG.address);
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -74,13 +76,13 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
         }).await;
     }
 
-    if config::ONLINE {}
+    if CONFIG.online {}
 
-    if config::THRESHOLD > -1 {
+    if CONFIG.threshold > -1 {
         client.queue_packet(SetCompression {
-            threshold: config::THRESHOLD,
+            threshold: CONFIG.threshold,
         }).await?;
-        client.enable_compression(config::THRESHOLD);
+        client.enable_compression(CONFIG.threshold);
     }
 
     client.write_packet(LoginSuccess {
@@ -88,8 +90,7 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
         uuid: generate_offline_uuid(&username),
     }).await?;
 
-    let initial_server = &config::SERVERS[0];
-    let server = create_backend_connection(initial_server, client.protocol, username).await?;
+    let server = create_backend_connection(CONFIG.backend_server, client.protocol, username).await?;
 
     handle_play(client, server).await
 }
@@ -131,13 +132,13 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
     }
 }
 
-async fn create_backend_connection(backend_server: &Server, version: ProtocolVersion, username: String) -> anyhow::Result<Connection> {
-    let mut server = Connection::connect(backend_server.address, version, Direction::Clientbound).await?;
+async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: String) -> anyhow::Result<Connection> {
+    let mut server = Connection::connect(backend_server, version, Direction::Clientbound).await?;
 
     server.queue_packet(Handshake {
         protocol: version as i32,
-        server_address: backend_server.address.ip().to_string(),
-        port: backend_server.address.port(),
+        server_address: backend_server.ip().to_string(),
+        port: backend_server.port(),
         state: LOGIN,
     }).await?;
 
@@ -149,7 +150,7 @@ async fn create_backend_connection(backend_server: &Server, version: ProtocolVer
 
     loop {
         return match server.next_packet().await? {
-            PacketType::EncryptionRequest(_) => Err(anyhow!("Encryption is not implemented")),
+            PacketType::EncryptionRequest(_) => unimplemented!("Encryption is not implemented"),
             PacketType::SetCompression(SetCompression { threshold }) => {
                 server.enable_compression(threshold);
                 continue;

@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use bytes::BytesMut;
 use libdeflater::Decompressor;
 use tokio_util::codec::Decoder;
@@ -6,19 +8,16 @@ use crate::protocol::util::get_varint;
 
 use super::util::read_varint;
 
+thread_local!(static DECOMPRESSOR: RefCell<Decompressor> = RefCell::new(Decompressor::new()));
+
 pub enum DecodeState {
     Length(i32, i32),
     Data(i32),
 }
 
-struct Decompression {
-    buf: BytesMut,
-    decompressor: Decompressor
-}
-
 pub struct MinecraftDecoder {
     state: DecodeState,
-    decompression: Option<Decompression>,
+    decompression: Option<BytesMut>,
 }
 
 impl MinecraftDecoder {
@@ -30,7 +29,7 @@ impl MinecraftDecoder {
     }
 
     pub fn enable_compression(&mut self) {
-        self.decompression = Some(Decompression { buf: BytesMut::with_capacity(1024), decompressor: Decompressor::new() })
+        self.decompression = Some(BytesMut::with_capacity(1024))
     }
 }
 
@@ -56,11 +55,11 @@ impl Decoder for MinecraftDecoder {
         if src.len() < length {
             return Ok(None);
         }
-        self.state = DecodeState::Length(0, 0);
 
+        self.state = DecodeState::Length(0, 0);
         let mut data = src.split_to(length);
 
-        if let Some(Decompression { buf, decompressor}) = &mut self.decompression {
+        if let Some(buf) = &mut self.decompression {
             let data_length = get_varint(&mut data)?;
 
             if data_length == 0 {
@@ -74,7 +73,9 @@ impl Decoder for MinecraftDecoder {
             }
             let mut buf = buf.split_to(data_length);
 
-            let result = decompressor.zlib_decompress(&data, &mut buf)?;
+            let result = DECOMPRESSOR.with(|d| {
+                d.borrow_mut().zlib_decompress(&data, &mut buf)
+            })?;
 
             if data_length != buf.len() {
                 println!("data_lenght: {}, readed_bytes: {}, result: {}", data_length, buf.len(), result);

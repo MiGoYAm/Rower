@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use bytes::{BufMut, BytesMut};
 use libdeflater::{CompressionLvl, Compressor};
 use tokio_util::codec::Encoder;
@@ -6,25 +8,19 @@ use crate::protocol::packet::RawPacket;
 
 use super::util::write_varint;
 
-struct Compression {
-    threshold: usize,
-    compressor: Compressor,
-}
+thread_local!(static COMPRESSOR: RefCell<Compressor> = RefCell::new(Compressor::new(CompressionLvl::best())));
 
 pub struct MinecraftEncoder {
-    compression: Option<Compression>,
+    threshold: Option<usize>,
 }
 
 impl MinecraftEncoder {
     pub fn new() -> Self {
-        Self { compression: None }
+        Self { threshold: None }
     }
 
     pub fn enable_compression(&mut self, threshold: u32) {
-        self.compression = Some(Compression {
-            threshold: threshold as usize,
-            compressor: Compressor::new(CompressionLvl::best()),
-        })
+        self.threshold = Some(threshold as usize)
     }
 
     /*
@@ -44,7 +40,7 @@ impl Encoder<RawPacket> for MinecraftEncoder {
         //let packet = self.convert_packet(item);
         let packet = item.buffer;
 
-        let result = if let Some(Compression { threshold, compressor }) = &mut self.compression {
+        let result = if let Some(threshold) = &self.threshold {
             let mut result = BytesMut::with_capacity(packet.len() + 3);
 
             if packet.len() < *threshold {
@@ -57,7 +53,9 @@ impl Encoder<RawPacket> for MinecraftEncoder {
                 let mut payload = result.split_off(result.len());
                 payload.resize(packet.len(), 0x00);
 
-                let r = compressor.zlib_compress(&packet, &mut payload)?;
+                let r = COMPRESSOR.with(|c| {
+                    c.borrow_mut().zlib_compress(&packet, &mut payload)
+                })?;
                 payload.resize(r, 0x00);
 
                 result.unsplit(payload);
