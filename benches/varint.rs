@@ -1,4 +1,4 @@
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, BytesMut, Buf};
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 #[inline(always)]
@@ -35,7 +35,7 @@ fn write_varint_best(buf: &mut BytesMut, value: u32) {
 }
 
 #[inline(always)]
-fn write_varint_best_short(buf: &mut BytesMut, value: u32) {
+pub fn write_varint_best_short(buf: &mut BytesMut, value: u32) {
     if (value & (0xFFFFFFFF << 7)) == 0 {
         buf.put_u8(value as u8);
     } else if (value & (0xFFFFFFFF << 14)) == 0 {
@@ -50,6 +50,16 @@ fn write_varint_best_short(buf: &mut BytesMut, value: u32) {
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("read varint");
+
+    group.bench_function("append", |b| {
+        b.iter_batched(|| (BytesMut::with_capacity(16383), BytesMut::with_capacity(16383)), 
+        |mut r| r.0.extend_from_slice(&r.1), BatchSize::LargeInput);
+    });
+
+    group.bench_function("append chain", |b| {
+        b.iter_batched(|| (BytesMut::with_capacity(16383), BytesMut::with_capacity(16383)), 
+        |r| r.0.chain(r.1), BatchSize::LargeInput);
+    });
 
     group.bench_function("normal", |b| {
         let mut buf = BytesMut::with_capacity(268435456);
@@ -70,42 +80,6 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter_batched(|| range.next().unwrap(), |r| write_varint_best_short(&mut buf, r), BatchSize::LargeInput);
     });
     group.finish()
-
-    /*
-    let mut group = c.benchmark_group("write varint");
-
-    group.bench_function("normal", |b| {
-        let mut buf = BytesMut::with_capacity(268435456);
-        let mut range  = (0..=2_097_151).cycle();
-
-        b.iter_batched(
-            || range.next().unwrap(),
-            |r| write_varint_loop(&mut buf, r),
-            BatchSize::LargeInput
-        );
-    });
-    group.bench_function("best", |b| {
-        let mut buf = BytesMut::with_capacity(268435456);
-        let mut range  = (0..=2_097_151).cycle();
-
-        b.iter_batched(
-            || range.next().unwrap(),
-            |r| write_varint_best(&mut buf, r),
-            BatchSize::LargeInput
-        );
-    });
-    group.bench_function("best short", |b| {
-        let mut buf = BytesMut::with_capacity(268435456);
-        let mut range  = (0..=2_097_151).cycle();
-
-        b.iter_batched(
-            || range.next().unwrap(),
-            |r| write_varint_best_short(&mut buf, r),
-            BatchSize::LargeInput
-        );
-    });
-    group.finish();
-    */
 }
 
 criterion_group!(benches, criterion_benchmark);

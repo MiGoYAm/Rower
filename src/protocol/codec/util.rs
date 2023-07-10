@@ -39,3 +39,26 @@ pub fn write_varint(dst: &mut BytesMut, value: u32) {
         dst.put_u8(w as u8);
     }
 }
+
+#[inline(always)]
+pub fn varint_length(v: u32) -> u32 {
+    match v {
+        0..=127 => 1,
+        128..=16383 => 2,
+        //16384..=2097151 => 3,
+        //2097152..=268435456 => 4,
+        //_ => 5
+        _ => 3
+    }
+}
+
+#[inline(always)]
+pub fn varint_length_usize(v: u32) -> usize {
+    match v {
+        0..=127 => 1,
+        128..=16383 => 2,
+        16384..=2097151 => 3,
+        2097152..=268435456 => 4,
+        _ => 5
+    }
+}

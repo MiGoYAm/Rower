@@ -117,13 +117,14 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
                         client.write_packet(packet).await?;
                         let (server_result, client_result) = tokio::join!(server.shutdown(), client.shutdown());
                         server_result?; client_result?;
+                        std::process::exit(2);
                     },
                     _ => println!("server cos wysłał")
                 }
             },
             Ok(packet) = client.next_packet() => {
                 match packet {
-                    PacketType::Raw(p) => server.write_raw_packet(p).await?,
+                    PacketType::Raw(packet) => server.write_raw_packet(packet).await?,
                     _ => println!("client cos wysłał")
                 }
             },

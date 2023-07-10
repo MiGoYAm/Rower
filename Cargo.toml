@@ -5,6 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[profile.release]
+debug = true
+
 [dependencies]
 anyhow = "1.0.71"
 log = "0.4.19"
@@ -23,10 +26,8 @@ base64 = "0.21.2"
 image = "0.24.6"
 rand = "0.8.5"
 strum = { version = "0.25.0", features = ["derive"] }
-#parking_lot = { version = "0.12.1", features = ["hardware-lock-elision"] }
 cfb8 = "0.8.1"
 aes = "0.8.3"
-#async-trait = "0.1.68"
 md-5 = "0.10.5"
 envy = "0.4.2"
 
@@ -35,4 +36,12 @@ criterion = "0.5.1"
 
 [[bench]]
 name = "varint"
+harness = false
+
+[[bench]]
+name = "varint_len"
+harness = false
+
+[[bench]]
+name = "decoder"
 harness = false
