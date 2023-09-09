@@ -72,6 +72,6 @@ impl Encoder<RawPacket> for MinecraftEncoder {
 
 fn write_21bit_varint(value: u32, buf: &mut BytesMut) {
     let w = (value & 0x7F | 0x80) << 16 | ((value >> 7) & 0x7F | 0x80) << 8 | (value >> 14);
-        buf.put_u16((w >> 8) as u16);
-        buf.put_u8(w as u8);
+    buf.put_u16((w >> 8) as u16);
+    buf.put_u8(w as u8);
 }

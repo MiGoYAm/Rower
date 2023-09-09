@@ -131,7 +131,6 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
                         client_write.write_packet(packet).await?;
                         //let (server_result, client_result) = tokio::join!(server.shutdown(), client.shutdown());
                         //server_result?; client_result?;
-                        std::process::exit(2);
                     },
                     _ => println!("server cos wysłał")
                 }

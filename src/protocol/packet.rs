@@ -41,7 +41,7 @@ impl RawPacket {
         self.buffer[0] = id;
     }
 
-    pub fn data(&mut self) -> BytesMut{
+    pub fn data(&mut self) -> BytesMut {
         self.buffer.split_off(1)
     }
 }

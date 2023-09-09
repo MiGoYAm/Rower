@@ -17,7 +17,11 @@ pub fn read_packets(decoder: Read) -> UnboundedReceiver<(PacketType<'static>, bo
 async fn read_packets_loop(mut decoder: Read, channel: mpsc::UnboundedSender<(PacketType<'_>, bool)>) {
 
     loop {
-        let frame = decoder.read.next().await.unwrap().unwrap();
+        let frame = if let Some(f) = decoder.read.next().await {
+            f.unwrap()
+        } else {
+            break
+        };
 
         let packet = decoder.registry.decode(frame, decoder.protocol).unwrap();
 
