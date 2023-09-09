@@ -43,5 +43,9 @@ name = "varint_len"
 harness = false
 
 [[bench]]
+name = "varint21"
+harness = false
+
+[[bench]]
 name = "decoder"
 harness = false

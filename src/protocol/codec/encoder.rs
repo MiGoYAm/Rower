@@ -6,7 +6,7 @@ use tokio_util::codec::Encoder;
 
 use crate::protocol::packet::RawPacket;
 
-use super::util::{write_varint, varint_length_usize, varint_length};
+use super::util::{write_varint, varint_length_usize};
 
 thread_local!(
     static COMPRESSOR: RefCell<Compressor> = RefCell::new(Compressor::new(CompressionLvl::best()))
@@ -14,12 +14,11 @@ thread_local!(
 
 pub struct MinecraftEncoder {
     threshold: Option<usize>,
-    buf: BytesMut
 }
 
 impl MinecraftEncoder {
     pub fn new() -> Self {
-        Self { threshold: None, buf: BytesMut::zeroed(1024) }
+        Self { threshold: None }
     }
 
     pub fn enable_compression(&mut self, threshold: u32) {
@@ -32,36 +31,47 @@ impl Encoder<RawPacket> for MinecraftEncoder {
 
     fn encode(&mut self, item: RawPacket, dst: &mut BytesMut) -> anyhow::Result<()> {
         let packet = item.buffer;
-        let data_length = packet.len() as u32;
+        let uncompressed_length = packet.len() as u32;
 
         if let Some(threshold) = self.threshold {
             if packet.len() >= threshold {
-                self.buf.resize(packet.len(), 0x00);
-                let mut payload = self.buf.split();
+                let ds = dst.split();
+                dst.reserve(packet.len() + 6);
 
-                COMPRESSOR.with(|c| {
-                    c.borrow_mut().zlib_compress(&packet, &mut payload)
+                let mut data = dst.split_off(3);
+
+                write_varint(&mut data, uncompressed_length);
+                let d = data.len();
+                unsafe { data.set_len(data.capacity()); }
+
+                let compressed_length = COMPRESSOR.with(|c| {
+                    c.borrow_mut().zlib_compress(&packet, &mut data[d..])
                 })?;
-                let payload_length = payload.len() as u32;
+                unsafe { data.set_len(d + compressed_length); }
 
-                dst.reserve(payload.len() + varint_length_usize(payload_length) + varint_length_usize(data_length));
+                write_21bit_varint(data.len() as u32, dst);
 
-                write_varint(dst, payload_length + varint_length(data_length));
-                write_varint(dst, data_length);
-                dst.extend_from_slice(&payload);
+                dst.unsplit(data);
+                dst.unsplit(ds);
             } else {
-                dst.reserve(packet.len() + varint_length_usize(data_length) + 1);
+                dst.reserve(packet.len() + varint_length_usize(uncompressed_length) + 1);
 
-                write_varint(dst, data_length + 1);
+                write_varint(dst, uncompressed_length + 1);
                 dst.put_u8(0x00);
                 dst.extend_from_slice(&packet);
             }
         } else {
-            dst.reserve(packet.len() + varint_length_usize(data_length));
-            write_varint(dst, data_length);
+            dst.reserve(packet.len() + varint_length_usize(uncompressed_length));
+            write_varint(dst, uncompressed_length);
             dst.extend_from_slice(&packet);
         }
 
         Ok(())
     }
+}
+
+fn write_21bit_varint(value: u32, buf: &mut BytesMut) {
+    let w = (value & 0x7F | 0x80) << 16 | ((value >> 7) & 0x7F | 0x80) << 8 | (value >> 14);
+        buf.put_u16((w >> 8) as u16);
+        buf.put_u8(w as u8);
 }

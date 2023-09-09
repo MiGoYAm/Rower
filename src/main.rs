@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::anyhow;
+use bytes::{BytesMut, BufMut};
 use handlers::STATES;
 use log::{error, info};
 use protocol::codec::experiment::read_packets;
@@ -22,6 +23,15 @@ mod component;
 mod config;
 mod handlers;
 mod protocol;
+
+fn write_21bit_varint(value: u32, buf: &mut BytesMut) {
+    buf.put_u8(((value & 0x7F | 0x80)) as u8);
+    buf.put_u8((((value >> 7) & 0x7F | 0x80)) as u8);
+    buf.put_u8((value >> 14) as u8);
+    //buf[0] = (value & 0x7F | 0x80) as u8;
+    //buf[1] = ((value >> 7) & 0x7F | 0x80) as u8;
+    //buf[2] = (value >> 14) as u8;
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
