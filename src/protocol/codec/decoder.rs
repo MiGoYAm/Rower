@@ -18,6 +18,7 @@ pub enum DecodeState {
 pub struct MinecraftDecoder {
     state: DecodeState,
     decompression: Option<BytesMut>,
+    pub completed: bool,
 }
 
 impl MinecraftDecoder {
@@ -25,6 +26,7 @@ impl MinecraftDecoder {
         Self {
             state: DecodeState::Length(0, 0),
             decompression: None,
+            completed: false,
         }
     }
 
@@ -58,6 +60,8 @@ impl Decoder for MinecraftDecoder {
 
         self.state = DecodeState::Length(0, 0);
         let mut data = src.split_to(length);
+
+        self.completed = src.is_empty();
 
         if let Some(buf) = &mut self.decompression {
             let data_length = get_varint(&mut data)?;

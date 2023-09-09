@@ -17,7 +17,7 @@ use crate::protocol::{
 use super::{
     decoder::MinecraftDecoder,
     encoder::MinecraftEncoder,
-    registry::{ProtocolRegistry, StateRegistry, HANDSHAKE_REG},
+    registry::{ProtocolRegistry, HANDSHAKE_REG},
 };
 
 pub struct Connection {
@@ -53,15 +53,13 @@ impl Connection {
     }
 
     pub async fn connect(addr: SocketAddr, version: ProtocolVersion, direction: Direction) -> anyhow::Result<Self> {
-        Ok(Self::create(TcpStream::connect(addr).await?, version, direction))
+        let tcp = TcpStream::connect(addr).await?;
+        tcp.set_nodelay(true)?;
+        Ok(Self::create(tcp, version, direction))
     }
 
     pub fn change_state(&mut self, state: State) {
-        self.set_registry(state.registry());
-    }
-
-    fn set_registry(&mut self, registry: &'static StateRegistry) {
-        (self.receive_registry, self.send_registry) = registry.get_registry(&self.direction, &self.protocol);
+        (self.receive_registry, self.send_registry) = state.registry().get_registry(&self.direction, &self.protocol);
     }
 
     pub async fn next_packet(&mut self) -> anyhow::Result<PacketType> {
@@ -90,7 +88,13 @@ impl Connection {
     }
 
     pub async fn write_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
-        self.framed_write.send(packet).await
+        self.framed_write.feed(packet).await?;
+
+        if self.framed_read.read_buffer().is_empty() {
+            return self.framed_write.flush().await;
+        }
+
+        Ok(())
     }
 
     pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
@@ -104,12 +108,6 @@ impl Connection {
     }
 
     fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> anyhow::Result<RawPacket> {
-        /* 
-        let mut raw_packet = RawPacket {
-            id: *self.send_registry.get_id::<T>()?,
-            data: BytesMut::new(),
-        };
-        */
         let mut raw_packet = RawPacket::new();
         raw_packet.set_id(*self.send_registry.get_id::<T>()?);
 
@@ -134,5 +132,72 @@ impl Connection {
 
     pub fn enable_encryption(&mut self) {
         todo!()
+    }
+
+    pub fn convert(self) -> (Read, Write, Info) {
+        (
+            Read {
+                read: self.framed_read,
+                registry: self.receive_registry,
+                protocol: self.protocol,
+            },
+            Write {
+                write: self.framed_write,
+                registry: self.send_registry,
+                protocol: self.protocol,
+            },
+            Info {
+                protocol: self.protocol,
+                direction: self.direction
+            }
+        )
+    }
+}
+
+pub struct Read {
+    pub read: FramedRead<OwnedReadHalf, MinecraftDecoder>,
+    pub registry: &'static ProtocolRegistry,
+    pub protocol: ProtocolVersion,
+}
+
+pub struct Write {
+    pub write: FramedWrite<OwnedWriteHalf, MinecraftEncoder>,
+    pub registry: &'static ProtocolRegistry,
+    pub protocol: ProtocolVersion,
+}
+
+pub struct Info {
+    pub protocol: ProtocolVersion,
+    direction: Direction,
+}
+
+impl Write {
+    pub async fn write_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
+        self.write.send(packet).await
+    }
+
+    pub async fn queue_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
+        self.write.feed(packet).await
+    }
+
+    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
+        let raw_packet = self.serialize_packet(packet)?;
+        self.write.send(raw_packet).await
+    }
+
+    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
+        let raw_packet = self.serialize_packet(packet)?;
+        self.write.feed(raw_packet).await
+    }
+
+    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> anyhow::Result<RawPacket> {
+        let mut raw_packet = RawPacket::new();
+        raw_packet.set_id(*self.registry.get_id::<T>()?);
+
+        let mut data = raw_packet.data();
+        packet.put_buf(&mut data, self.protocol);
+        raw_packet.buffer.unsplit(data);
+
+        Ok(raw_packet)
     }
 }

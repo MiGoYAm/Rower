@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use anyhow::anyhow;
 use handlers::STATES;
 use log::{error, info};
+use protocol::codec::experiment::read_packets;
 use protocol::codec::minecraft_codec::Connection;
 use protocol::packet::handshake::Handshake;
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
@@ -32,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         let (stream, _) = listener.accept().await?;
+        stream.set_nodelay(true)?;
 
         tokio::spawn(handle(stream));
     }
@@ -98,6 +100,59 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
 async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::Result<()> {
     client.change_state(State::Play);
     server.change_state(State::Play);
+
+    let (client_read, mut client_write, _client_info) = client.convert();
+    let (server_read, mut server_write, _server_info) = server.convert();
+    let mut client_recv = read_packets(client_read);
+    let mut server_recv = read_packets(server_read);
+
+    loop {
+        tokio::select! {
+            Some((packet, end)) = server_recv.recv() => {
+                match packet {
+                    PacketType::Raw(packet) => {
+                        if end {
+                            client_write.write_raw_packet(packet).await?
+                        } else {
+                            client_write.queue_raw_packet(packet).await?
+                        }
+                    },
+                    PacketType::PluginMessage(mut packet) => {
+                        if packet.channel == "minecraft:brand" {
+                            let mut brand = get_string(&mut packet.data, 32700)?;
+                            brand.push_str(" inside a bike");
+
+                            packet.data.clear();
+                            put_str(&mut packet.data, &brand);
+                        }
+                        client_write.write_packet(packet).await?;
+                    },
+                    PacketType::Disconnect(packet) => {
+                        client_write.write_packet(packet).await?;
+                        //let (server_result, client_result) = tokio::join!(server.shutdown(), client.shutdown());
+                        //server_result?; client_result?;
+                        std::process::exit(2);
+                    },
+                    _ => println!("server cos wysłał")
+                }
+            },
+            Some((packet, end)) = client_recv.recv() => {
+                match packet {
+                    PacketType::Raw(packet) => {
+                        if end {
+                            server_write.write_raw_packet(packet).await?
+                        } else {
+                            server_write.queue_raw_packet(packet).await?
+                        }
+                    },
+                    _ => println!("client cos wysłał")
+                }
+            },
+            else => return Ok(())
+        };
+    }
+
+    /* 
     loop {
         tokio::select! {
             Ok(packet) = server.next_packet() => {
@@ -131,6 +186,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
             else => return Ok(())
         };
     }
+    */
 }
 
 async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: String) -> anyhow::Result<Connection> {
