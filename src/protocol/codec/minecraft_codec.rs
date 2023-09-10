@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Ok};
 use std::net::SocketAddr;
 
 use bytes::{Buf, BytesMut};
@@ -199,5 +199,9 @@ impl Write {
         raw_packet.buffer.unsplit(data);
 
         Ok(raw_packet)
+    }
+
+    pub async fn shutdown(&mut self) -> anyhow::Result<()> {
+        self.write.close().await
     }
 }

@@ -129,8 +129,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
                     },
                     PacketType::Disconnect(packet) => {
                         client_write.write_packet(packet).await?;
-                        //let (server_result, client_result) = tokio::join!(server.shutdown(), client.shutdown());
-                        //server_result?; client_result?;
+                        tokio::try_join!(server_write.shutdown(), client_write.shutdown())?;
                     },
                     _ => println!("server cos wysłał")
                 }

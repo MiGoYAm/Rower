@@ -44,9 +44,11 @@ impl Encoder<RawPacket> for MinecraftEncoder {
                 let d = data.len();
                 unsafe { data.set_len(data.capacity()); }
 
+
                 let compressed_length = COMPRESSOR.with(|c| {
                     c.borrow_mut().zlib_compress(&packet, &mut data[d..])
                 })?;
+                
                 unsafe { data.set_len(d + compressed_length); }
 
                 write_21bit_varint(data.len() as u32, dst);
