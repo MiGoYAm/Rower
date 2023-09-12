@@ -73,13 +73,9 @@ impl Decoder for MinecraftDecoder {
             }
             let mut buf = buf.split_to(data_length);
 
-            let result = DECOMPRESSOR.with(|d| {
+            let _result = DECOMPRESSOR.with(|d| {
                 d.borrow_mut().zlib_decompress(&data, &mut buf)
             })?;
-
-            if data_length != buf.len() {
-                println!("data_lenght: {}, readed_bytes: {}, result: {}", data_length, buf.len(), result);
-            }
             
             return Ok(Some(buf));
         }

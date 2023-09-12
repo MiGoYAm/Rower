@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
 
 use anyhow::anyhow;
+use error::ProxyError;
 use handlers::STATES;
 use log::{error, info};
-use protocol::codec::experiment::read_packets;
 use protocol::codec::minecraft_codec::Connection;
 use protocol::packet::handshake::Handshake;
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
@@ -22,6 +22,7 @@ mod component;
 mod config;
 mod handlers;
 mod protocol;
+mod error;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -53,7 +54,7 @@ async fn handle_handshake(mut client: Connection) -> anyhow::Result<()> {
     match state {
         STATUS => handle_status(client).await,
         LOGIN => handle_login(client).await,
-        _ => Err(anyhow!("Handshake packet with wrong next state")),
+        _ => Err(anyhow!("Handshake packet with unknown next state")),
     }
 }
 
@@ -87,12 +88,24 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
         client.enable_compression(CONFIG.threshold);
     }
 
-    client.write_packet(LoginSuccess {
-        username: username.clone(),
-        uuid: generate_offline_uuid(&username),
-    }).await?;
+    let server = match create_backend_connection(CONFIG.backend_server, client.protocol, username.clone()).await {
+        Ok(server) => server,
+        Err(e) => {
+            return match e {
+                ProxyError::ServerDisconnected(reason) => {
+                    client.write_packet(Disconnect {
+                        reason
+                    }).await
+                }
+                ProxyError::Other(e) => Err(e)
+            };
+        },
+    };
 
-    let server = create_backend_connection(CONFIG.backend_server, client.protocol, username).await?;
+    client.write_packet(LoginSuccess {
+        uuid: generate_offline_uuid(&username),
+        username
+    }).await?;
 
     handle_play(client, server).await
 }
@@ -100,57 +113,7 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
 async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::Result<()> {
     client.change_state(State::Play);
     server.change_state(State::Play);
-
-    let (client_read, mut client_write, _client_info) = client.convert();
-    let (server_read, mut server_write, _server_info) = server.convert();
-    let mut client_recv = read_packets(client_read);
-    let mut server_recv = read_packets(server_read);
-
-    loop {
-        tokio::select! {
-            Some((packet, end)) = server_recv.recv() => {
-                match packet {
-                    PacketType::Raw(packet) => {
-                        if end {
-                            client_write.write_raw_packet(packet).await?
-                        } else {
-                            client_write.queue_raw_packet(packet).await?
-                        }
-                    },
-                    PacketType::PluginMessage(mut packet) => {
-                        if packet.channel == "minecraft:brand" {
-                            let mut brand = get_string(&mut packet.data, 32700)?;
-                            brand.push_str(" inside a bike");
-
-                            packet.data.clear();
-                            put_str(&mut packet.data, &brand);
-                        }
-                        client_write.write_packet(packet).await?;
-                    },
-                    PacketType::Disconnect(packet) => {
-                        client_write.write_packet(packet).await?;
-                        tokio::try_join!(server_write.shutdown(), client_write.shutdown())?;
-                    },
-                    _ => println!("server cos wysłał")
-                }
-            },
-            Some((packet, end)) = client_recv.recv() => {
-                match packet {
-                    PacketType::Raw(packet) => {
-                        if end {
-                            server_write.write_raw_packet(packet).await?
-                        } else {
-                            server_write.queue_raw_packet(packet).await?
-                        }
-                    },
-                    _ => println!("client cos wysłał")
-                }
-            },
-            else => return Ok(())
-        };
-    }
-
-    /* 
+    
     loop {
         tokio::select! {
             Ok(packet) = server.next_packet() => {
@@ -168,9 +131,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
                     },
                     PacketType::Disconnect(packet) => {
                         client.write_packet(packet).await?;
-                        let (server_result, client_result) = tokio::join!(server.shutdown(), client.shutdown());
-                        server_result?; client_result?;
-                        std::process::exit(2);
+                        tokio::try_join!(server.shutdown(), client.shutdown())?;
                     },
                     _ => println!("server cos wysłał")
                 }
@@ -184,10 +145,9 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
             else => return Ok(())
         };
     }
-    */
 }
 
-async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: String) -> anyhow::Result<Connection> {
+async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: String) -> Result<Connection, ProxyError> {
     let mut server = Connection::connect(backend_server, version, Direction::Clientbound).await?;
 
     server.queue_packet(Handshake {
@@ -211,9 +171,12 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
                 continue;
             }
             PacketType::LoginSuccess(_) => Ok(server),
-            PacketType::LoginPluginRequest(_) => Err(anyhow!("login plugin request")),
-            PacketType::Disconnect(_) => Err(anyhow!("disconnect")),
-            _ => Err(anyhow!("login idk")),
+            PacketType::LoginPluginRequest(_) => unimplemented!("login plugin request"),
+            PacketType::Disconnect(Disconnect { reason }) => {
+                server.shutdown().await?;
+                Err(ProxyError::ServerDisconnected(reason))
+            },
+            _ => Err(anyhow!("unknown packet").into()),
         };
     }
 }

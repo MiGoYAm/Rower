@@ -65,7 +65,7 @@ impl<'de> Deserialize<'de> for Type {
 }
 */
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum Type {
     Text {
@@ -82,7 +82,7 @@ pub enum Type {
 }
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Component {
     #[serde(flatten)]
     pub content: Type,

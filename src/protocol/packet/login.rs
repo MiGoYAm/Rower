@@ -68,10 +68,8 @@ impl Packet for Disconnect {
     where
         Self: Sized,
     {
-        let binding = get_string(buf, 262144)?;
-        let s = binding.as_str();
         Ok(Self {
-            reason: serde_json::from_str::<Component>(s)?,
+            reason: serde_json::from_str::<Component>(get_string(buf, 262144)?.as_str())?,
         })
     }
 

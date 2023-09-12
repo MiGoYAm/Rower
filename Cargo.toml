@@ -30,6 +30,7 @@ cfb8 = "0.8.1"
 aes = "0.8.3"
 md-5 = "0.10.5"
 envy = "0.4.2"
+thiserror = "1.0.48"
 
 [dev-dependencies]
 criterion = "0.5.1"
