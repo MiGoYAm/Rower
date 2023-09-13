@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use anyhow::anyhow;
 use error::ProxyError;
-use handlers::STATES;
+use handlers::{STATES, get_initial_server};
 use log::{error, info};
 use protocol::codec::minecraft_codec::Connection;
 use protocol::packet::handshake::{Handshake, NextState};
@@ -73,32 +73,21 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
     let LoginStart { username, .. } = client.read_packet().await?;
 
     if client.protocol < ProtocolVersion::V1_19_2 {
-        return client.write_packet(Disconnect {
-            reason: Component::text_str("We support versions above 1.19.1"),
-        }).await;
+        return client.disconnect(Component::text_str("We support versions above 1.19.1")).await;
     }
 
     if CONFIG.online {}
 
-    if CONFIG.threshold > -1 {
-        client.queue_packet(SetCompression {
-            threshold: CONFIG.threshold,
-        }).await?;
-        client.enable_compression(CONFIG.threshold);
+    let threshold = CONFIG.threshold;
+    if threshold > -1 {
+        client.queue_packet(SetCompression { threshold }).await?;
+        client.enable_compression(threshold);
     }
 
-    let server = match create_backend_connection(CONFIG.backend_server, client.protocol, username.clone()).await {
+    let server = match create_backend_connection(CONFIG.backend_server, client.protocol, &username).await {
         Ok(server) => server,
-        Err(e) => {
-            return match e {
-                ProxyError::ServerDisconnected(reason) => {
-                    client.write_packet(Disconnect {
-                        reason
-                    }).await
-                }
-                ProxyError::Other(e) => Err(e)
-            };
-        },
+        Err(ProxyError::ServerDisconnected(reason)) => return client.disconnect(reason).await,
+        Err(ProxyError::Other(e)) => return Err(e)
     };
 
     client.write_packet(LoginSuccess {
@@ -146,7 +135,7 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
     }
 }
 
-async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: String) -> Result<Connection, ProxyError> {
+async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: &String) -> Result<Connection, ProxyError> {
     let mut server = Connection::connect(backend_server, version, Direction::Clientbound).await?;
 
     server.queue_packet(Handshake {
@@ -158,7 +147,7 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
 
     server.change_state(State::Login);
     server.write_packet(LoginStart { 
-        username, 
+        username: username.clone(), 
         uuid: None 
     }).await?;
 

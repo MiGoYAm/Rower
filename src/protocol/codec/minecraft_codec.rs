@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Ok};
+use anyhow::{anyhow, ensure};
 use std::net::SocketAddr;
 
 use bytes::{Buf, BytesMut};
@@ -9,10 +9,10 @@ use tokio::net::{
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::protocol::{
-    packet::{Packet, PacketType, RawPacket},
+use crate::{protocol::{
+    packet::{Packet, PacketType, RawPacket, login::Disconnect},
     Direction, ProtocolVersion, State,
-};
+}, component::Component};
 
 use super::{
     decoder::MinecraftDecoder,
@@ -32,12 +32,12 @@ pub struct Connection {
 }
 
 impl Connection {
-    fn create(stream: TcpStream, version: ProtocolVersion, direction: Direction) -> Self {
+    fn create(stream: TcpStream, protocol: ProtocolVersion, direction: Direction) -> Self {
         let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction, &ProtocolVersion::Unknown);
         let (reader, writer) = stream.into_split();
 
         Self {
-            protocol: version,
+            protocol,
             direction,
 
             send_registry,
@@ -73,16 +73,14 @@ impl Connection {
         let registry_id = self.receive_registry.get_id::<T>()?;
         let id = frame.get_u8();
 
-        if registry_id != &id {
-            return Err(anyhow!("Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id));
-        }
+        ensure!(registry_id == &id, "Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id);
 
         T::from_bytes(&mut frame, self.protocol)
     }
 
     async fn read_frame(&mut self) -> anyhow::Result<BytesMut> {
         match self.framed_read.next().await {
-            Some(r) => r,
+            Some(result) => result,
             None => Err(anyhow!("Connection aborted")),
         }
     }
@@ -122,12 +120,14 @@ impl Connection {
         self.framed_write.close().await
     }
 
+    pub async fn disconnect(&mut self, reason: Component) -> anyhow::Result<()> {
+        self.write_packet(Disconnect { reason }).await?;
+        self.shutdown().await
+    }
+
     pub fn enable_compression(&mut self, threshold: i32) {
-        if threshold > -1 {
-            let threshold = threshold as u32;
-            self.framed_read.decoder_mut().enable_compression();
-            self.framed_write.encoder_mut().enable_compression(threshold);
-        }
+        self.framed_read.decoder_mut().enable_compression();
+        self.framed_write.encoder_mut().enable_compression(threshold);
     }
 
     pub fn enable_encryption(&mut self) {

@@ -23,7 +23,7 @@ impl Packet for PluginMessage {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_string(buf, &self.channel);
         buf.extend_from_slice(&self.data);
     }

@@ -19,7 +19,7 @@ pub trait Packet {
     where
         Self: Sized;
 
-    fn put_buf(&self, buf: &mut BytesMut, version: ProtocolVersion);
+    fn put_buf(self, buf: &mut BytesMut, version: ProtocolVersion);
 }
 
 /*

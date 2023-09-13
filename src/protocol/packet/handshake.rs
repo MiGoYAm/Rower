@@ -23,7 +23,7 @@ impl Packet for Handshake {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_varint(buf, self.protocol as u32);
         put_string(buf, &self.server_address);
         buf.put_u16(self.port);

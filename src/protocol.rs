@@ -11,11 +11,6 @@ pub mod codec;
 pub mod packet;
 pub mod util;
 
-pub const HANDSHAKE: u8 = 0;
-pub const STATUS: u8 = 1;
-pub const LOGIN: u8 = 2;
-pub const PLAY: u8 = 3;
-
 pub enum State {
     Handshake,
     Status,

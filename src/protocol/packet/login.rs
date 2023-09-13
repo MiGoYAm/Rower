@@ -22,7 +22,7 @@ impl Packet for LoginStart {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_string(buf, &self.username);
         match self.uuid {
             Some(uuid) => {
@@ -50,7 +50,7 @@ impl Packet for LoginSuccess {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         buf.put_u128(self.uuid.as_u128());
         //put_string(buf, &self.username);
         put_str(buf, &self.username);
@@ -73,7 +73,7 @@ impl Packet for Disconnect {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_string(buf, &serde_json::to_string(&self.reason).unwrap());
     }
 }
@@ -90,7 +90,7 @@ impl Packet for SetCompression {
         Ok(Self { threshold: get_varint(buf)? })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_varint(buf, self.threshold as u32)
     }
 }
@@ -113,7 +113,7 @@ impl Packet for EncryptionRequest {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_string(buf, &self.server_id);
         put_byte_array(buf, &self.public_key);
         put_byte_array(buf, &self.verify_token);
@@ -136,7 +136,7 @@ impl Packet for EncryptionResponse {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_byte_array(buf, &self.shared_secret);
         put_byte_array(buf, &self.verify_token);
     }
@@ -160,7 +160,7 @@ impl Packet for LoginPluginRequest {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_varint(buf, self.message_id as u32);
         put_string(buf, &self.channel);
         buf.extend_from_slice(&self.data);
@@ -187,7 +187,7 @@ impl Packet for LoginPluginResponse {
         })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_varint(buf, self.message_id as u32);
         put_bool(buf, self.successful);
 

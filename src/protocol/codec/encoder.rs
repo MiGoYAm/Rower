@@ -21,8 +21,10 @@ impl MinecraftEncoder {
         Self { threshold: None }
     }
 
-    pub fn enable_compression(&mut self, threshold: u32) {
-        self.threshold = Some(threshold as usize)
+    pub fn enable_compression(&mut self, threshold: i32) {
+        if threshold > -1 {
+            self.threshold = Some(threshold as usize)
+        }
     }
 }
 

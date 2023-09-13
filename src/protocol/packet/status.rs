@@ -13,7 +13,7 @@ impl Packet for StatusRequest {
         Ok(Self)
     }
 
-    fn put_buf(&self, _: &mut BytesMut, _: ProtocolVersion) {}
+    fn put_buf(self, _: &mut BytesMut, _: ProtocolVersion) {}
 }
 
 #[derive(Serialize)]
@@ -72,7 +72,7 @@ impl<'a> Packet for StatusResponse<'a> {
         todo!()
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         put_byte_array(buf, self.status)
     }
 }
@@ -89,7 +89,7 @@ impl Packet for Ping {
         Ok(Self { payload: buf.get_i64() })
     }
 
-    fn put_buf(&self, buf: &mut BytesMut, _: ProtocolVersion) {
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         buf.put_i64(self.payload);
     }
 }
