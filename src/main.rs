@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use anyhow::anyhow;
 use error::ProxyError;
-use handlers::{STATES, get_initial_server};
+use handlers::STATES;
 use log::{error, info};
 use protocol::codec::minecraft_codec::Connection;
 use protocol::packet::handshake::{Handshake, NextState};
