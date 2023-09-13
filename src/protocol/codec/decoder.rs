@@ -8,7 +8,9 @@ use crate::protocol::util::get_varint;
 
 use super::util::read_varint;
 
-thread_local!(static DECOMPRESSOR: RefCell<Decompressor> = RefCell::new(Decompressor::new()));
+thread_local!(
+    static DECOMPRESSOR: RefCell<Decompressor> = RefCell::new(Decompressor::new())
+);
 
 pub enum DecodeState {
     Length(i32, i32),

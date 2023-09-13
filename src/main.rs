@@ -5,10 +5,10 @@ use error::ProxyError;
 use handlers::STATES;
 use log::{error, info};
 use protocol::codec::minecraft_codec::Connection;
-use protocol::packet::handshake::Handshake;
+use protocol::packet::handshake::{Handshake, NextState};
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
 use protocol::packet::PacketType;
-use protocol::{Direction, LOGIN, STATUS, State};
+use protocol::{Direction, State};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::component::Component;
@@ -52,9 +52,8 @@ async fn handle_handshake(mut client: Connection) -> anyhow::Result<()> {
     client.protocol = protocol.try_into()?;
 
     match state {
-        STATUS => handle_status(client).await,
-        LOGIN => handle_login(client).await,
-        _ => Err(anyhow!("Handshake packet with unknown next state")),
+        NextState::Status => handle_status(client).await,
+        NextState::Login => handle_login(client).await,
     }
 }
 
@@ -154,7 +153,7 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
         protocol: version as i32,
         server_address: backend_server.ip().to_string(),
         port: backend_server.port(),
-        state: LOGIN,
+        state: NextState::Login,
     }).await?;
 
     server.change_state(State::Login);
