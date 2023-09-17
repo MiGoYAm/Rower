@@ -3,7 +3,7 @@ use bytes::BytesMut;
 use self::{
     handshake::Handshake,
     login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression, LoginPluginRequest, LoginPluginResponse},
-    play::PluginMessage,
+    play::{PluginMessage, JoinGame, Respawn},
     status::{Ping, StatusResponse},
 };
 
@@ -14,10 +14,8 @@ pub mod login;
 pub mod play;
 pub mod status;
 
-pub trait Packet {
-    fn from_bytes(buf: &mut BytesMut, version: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized;
+pub trait Packet: Sized {
+    fn from_bytes(buf: &mut BytesMut, version: ProtocolVersion) -> anyhow::Result<Self>;
 
     fn put_buf(self, buf: &mut BytesMut, version: ProtocolVersion);
 }
@@ -63,5 +61,7 @@ pub enum PacketType<'a> {
     LoginPluginResponse(LoginPluginResponse),
     Disconnect(Disconnect),
 
+    JoinGame(JoinGame),
+    Respawn(Respawn),
     PluginMessage(PluginMessage),
 }

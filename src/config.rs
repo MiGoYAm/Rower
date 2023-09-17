@@ -14,7 +14,9 @@ pub struct Config {
     #[serde(default = "default_online_mode")]
     pub online: bool,
     #[serde(default = "default_backend_server")]
-    pub backend_server: SocketAddr
+    pub backend_server: SocketAddr,
+    #[serde(default = "default_fallback_server")]
+    pub fallback_server: SocketAddr
 }
 
 fn default_address() -> SocketAddr {
@@ -31,4 +33,8 @@ fn default_online_mode() -> bool {
 
 fn default_backend_server() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25566)
+}
+
+fn default_fallback_server() -> SocketAddr {
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25567)
 }

@@ -10,6 +10,8 @@ use self::codec::registry::{StateRegistry, HANDSHAKE_REG, STATUS_REG, LOGIN_REG,
 pub mod codec;
 pub mod packet;
 pub mod util;
+pub mod client;
+pub mod nbt;
 
 pub enum State {
     Handshake,

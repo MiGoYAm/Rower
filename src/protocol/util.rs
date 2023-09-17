@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure};
 use bytes::{Buf, BufMut, BytesMut};
 
 pub fn get_varint(buf: &mut impl Buf) -> anyhow::Result<i32> {
@@ -51,12 +51,10 @@ pub fn put_bool(buf: &mut impl BufMut, b: bool) {
 
 pub fn get_string(buf: &mut BytesMut, cap: i32) -> anyhow::Result<String> {
     let len = get_varint(buf)?;
-    if len < 0 {
-        return Err(anyhow!("String lenght is negative"));
-    }
-    if len > 3 * cap {
-        return Err(anyhow!("String is too long"));
-    }
+
+    ensure!(len >= 0, "String lenght is negative");
+    ensure!(len <= 3 * cap, "String is too long");
+
     let bytes = buf.split_to(len as usize);
     Ok(String::from_utf8(bytes.to_vec())?)
 }
@@ -65,6 +63,10 @@ pub fn put_string(buf: &mut BytesMut, s: &String) {
     let s = s.as_bytes();
     put_varint(buf, s.len() as u32);
     buf.extend_from_slice(s);
+}
+
+pub fn get_identifier(buf: &mut BytesMut) -> anyhow::Result<String> {
+    get_string(buf, 32767)
 }
 
 pub fn put_str(buf: &mut BytesMut, s: &str) {
@@ -80,7 +82,7 @@ pub fn get_byte_array(buf: &mut BytesMut) -> anyhow::Result<Vec<u8>> {
         return Err(anyhow!("Invalid byte array lenght"));
     }
 
-    let mut array = Vec::with_capacity(lenght);
+    let mut array = vec![0; lenght];
     buf.copy_to_slice(&mut array);
     Ok(array)
 }
@@ -88,4 +90,15 @@ pub fn get_byte_array(buf: &mut BytesMut) -> anyhow::Result<Vec<u8>> {
 pub fn put_byte_array(buf: &mut BytesMut, bytes: &Vec<u8>) {
     put_varint(buf, bytes.len() as u32);
     buf.extend_from_slice(bytes);
+}
+
+pub fn get_array<T>(buf: &mut BytesMut, fun: fn(&mut BytesMut) -> anyhow::Result<T>) -> anyhow::Result<Vec<T>> {
+    let length = get_varint(buf)? as usize;
+    let mut array = Vec::with_capacity(length);
+
+    for _ in 0..length {
+        array.push(fun(buf)?)
+    }
+
+    Ok(array)
 }

@@ -1,5 +1,5 @@
 mod decoder;
 mod encoder;
-pub mod minecraft_codec;
+pub mod connection;
 pub mod registry;
 mod util;

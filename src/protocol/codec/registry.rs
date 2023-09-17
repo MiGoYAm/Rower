@@ -9,7 +9,7 @@ use crate::protocol::{
     packet::{
         handshake::Handshake,
         login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression},
-        play::PluginMessage,
+        play::{PluginMessage, JoinGame, Respawn},
         status::{Ping, StatusRequest, StatusResponse},
         Packet, PacketType, RawPacket,
     },
@@ -80,6 +80,14 @@ pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
         |mut b, v| Ok(PacketType::PluginMessage(PluginMessage::from_bytes(&mut b, v)?)),
         Id::Clientbound(Mapping::Single(0x17)),
     );
+    registry.insert::<JoinGame>(
+        |mut b, v| Ok(PacketType::JoinGame(JoinGame::from_bytes(&mut b, v)?)),
+        Id::Clientbound(Mapping::Single(0x28))
+    );
+    registry.insert::<Respawn>(
+        |mut b, v| Ok(PacketType::Respawn(Respawn::from_bytes(&mut b, v)?)),
+        Id::Clientbound(Mapping::Single(0x41))
+    );
     registry
 });
 
@@ -113,7 +121,7 @@ impl StateRegistry {
         }
     }
 
-    fn insert_mapping<T: Packet + 'static>(&mut self, p: PacketProducer, mapping: Mapping, direction: Direction) {
+    fn insert_mapping<T: Packet + 'static>(&mut self, producer: PacketProducer, mapping: Mapping, direction: Direction) {
         match mapping {
             Mapping::Single(id) => {
                 for packet_registry in self.protocols.values_mut() {
@@ -121,7 +129,7 @@ impl StateRegistry {
                         Direction::Clientbound => &mut packet_registry.clientbound,
                         Direction::Serverbound => &mut packet_registry.serverbound,
                     }
-                    .insert::<T>(p, id)
+                    .insert::<T>(producer, id)
                 }
             }
             Mapping::List(mut list) => {
@@ -137,7 +145,7 @@ impl StateRegistry {
                                 Direction::Clientbound => &mut packet_registry.clientbound,
                                 Direction::Serverbound => &mut packet_registry.serverbound,
                             }
-                            .insert::<T>(p, *id);
+                            .insert::<T>(producer, *id);
                         }
                     }
                 }
@@ -171,42 +179,44 @@ impl PacketRegistry {
 }
 
 pub struct ProtocolRegistry {
-    packet_id: HashMap<TypeId, u8>,
-    id_packet: HashMap<u8, PacketProducer>,
+    packet_to_id: HashMap<TypeId, u8>,
+    id_to_packet: HashMap<u8, PacketProducer>,
 }
 
 impl ProtocolRegistry {
     pub fn new() -> Self {
         Self {
-            packet_id: HashMap::new(),
-            id_packet: HashMap::new(),
+            packet_to_id: HashMap::new(),
+            id_to_packet: HashMap::new(),
         }
     }
 
     fn insert<T: Packet + 'static>(&mut self, producer: PacketProducer, id: u8) {
-        self.packet_id.insert(TypeId::of::<T>(), id);
-        self.id_packet.insert(id, producer);
+        self.insert_packet_to_id::<T>(id);
+        self.insert_id_to_packet(producer, id);
+    }
+
+    fn insert_packet_to_id<T: Packet + 'static>(&mut self, id: u8) {
+        self.packet_to_id.insert(TypeId::of::<T>(), id);
+    }
+
+    fn insert_id_to_packet(&mut self, producer: PacketProducer, id: u8) {
+        self.id_to_packet.insert(id, producer);
     }
 
     pub fn decode(&self, mut data: BytesMut, version: ProtocolVersion) -> anyhow::Result<PacketType> {
         let id = data[0];
-        match self.id_packet.get(&id) {
+        match self.id_to_packet.get(&id) {
             Some(function) => function(data.split_off(1), version),
             None => Ok(PacketType::Raw(RawPacket { buffer: data })),
         }
     }
 
     pub fn get_packet(&self, id: u8) -> anyhow::Result<&PacketProducer> {
-        match self.id_packet.get(&id) {
-            Some(v) => Ok(v),
-            None => Err(anyhow!("Packet with id {:02X?} does not exist in this state or version", id)),
-        }
+        self.id_to_packet.get(&id).ok_or(anyhow!("Packet with id {:02X?} does not exist in this state or version", id))
     }
 
     pub fn get_id<T: Packet + 'static>(&self) -> anyhow::Result<&u8> {
-        match self.packet_id.get(&TypeId::of::<T>()) {
-            Some(v) => Ok(v),
-            None => Err(anyhow!("Packet does not exist in this state or version")),
-        }
+        self.packet_to_id.get(&TypeId::of::<T>()).ok_or(anyhow!("Packet does not exist in this state or version"))
     }
 }

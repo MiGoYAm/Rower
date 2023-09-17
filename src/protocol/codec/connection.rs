@@ -1,7 +1,7 @@
 use anyhow::{anyhow, ensure};
 use std::net::SocketAddr;
 
-use bytes::{Buf, BytesMut};
+use bytes::Buf;
 use futures::{SinkExt, StreamExt};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -11,7 +11,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::{protocol::{
     packet::{Packet, PacketType, RawPacket, login::Disconnect},
-    Direction, ProtocolVersion, State,
+    Direction, ProtocolVersion, State
 }, component::Component};
 
 use super::{
@@ -63,24 +63,24 @@ impl Connection {
     }
 
     pub async fn next_packet(&mut self) -> anyhow::Result<PacketType> {
-        let frame = self.read_frame().await?;
+        let frame = self.read_raw_packet().await?.buffer;
 
         self.receive_registry.decode(frame, self.protocol)
     }
 
     pub async fn read_packet<T: Packet + 'static>(&mut self) -> anyhow::Result<T> {
-        let mut frame = self.read_frame().await?;
+        let mut frame = self.read_raw_packet().await?.buffer;
         let registry_id = self.receive_registry.get_id::<T>()?;
         let id = frame.get_u8();
 
-        ensure!(registry_id == &id, "Invalid provided packet. Packet id: Provided: {}, Got: {}", registry_id, id);
+        ensure!(registry_id == &id, "Invalid provided packet. Packet id: Provided: 0x{:02X?}, Got: 0x{:02X?}", registry_id, id);
 
         T::from_bytes(&mut frame, self.protocol)
     }
 
-    async fn read_frame(&mut self) -> anyhow::Result<BytesMut> {
+    pub async fn read_raw_packet(&mut self) -> anyhow::Result<RawPacket> {
         match self.framed_read.next().await {
-            Some(result) => result,
+            Some(result) => Ok(RawPacket { buffer: result? }),
             None => Err(anyhow!("Connection aborted")),
         }
     }

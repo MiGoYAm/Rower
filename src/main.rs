@@ -4,10 +4,11 @@ use anyhow::anyhow;
 use error::ProxyError;
 use handlers::STATES;
 use log::{error, info};
-use protocol::codec::minecraft_codec::Connection;
+use protocol::codec::connection::Connection;
 use protocol::packet::handshake::{Handshake, NextState};
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
 use protocol::packet::PacketType;
+use protocol::packet::play::{JoinGame, Respawn};
 use protocol::{Direction, State};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -86,8 +87,8 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
 
     let server = match create_backend_connection(CONFIG.backend_server, client.protocol, &username).await {
         Ok(server) => server,
-        Err(ProxyError::ServerDisconnected(reason)) => return client.disconnect(reason).await,
-        Err(ProxyError::Other(e)) => return Err(e)
+        Err(ProxyError::Disconnected(reason)) => return client.disconnect(reason).await,
+        Err(ProxyError::Other(error)) => return Err(error)
     };
 
     client.write_packet(LoginSuccess {
@@ -100,7 +101,9 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
 
 async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::Result<()> {
     client.change_state(State::Play);
-    server.change_state(State::Play);
+
+    let join: JoinGame = server.read_packet().await?;
+    client.queue_packet(join).await?;
     
     loop {
         tokio::select! {
@@ -117,9 +120,14 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
                         }
                         client.write_packet(packet).await?;
                     },
-                    PacketType::Disconnect(packet) => {
-                        client.write_packet(packet).await?;
-                        tokio::try_join!(server.shutdown(), client.shutdown())?;
+                    PacketType::Disconnect(_packet) => {
+                        server.shutdown().await?;
+
+                        server = create_backend_connection(CONFIG.fallback_server, client.protocol, &"temp".to_string()).await?;
+                        let join: JoinGame = server.read_packet().await?;
+                        let respawn = Respawn::from_joingame(&join);
+                        client.queue_packet(join).await?;
+                        client.queue_packet(respawn).await?;
                     },
                     _ => println!("server cos wysłał")
                 }
@@ -158,11 +166,14 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
                 server.enable_compression(threshold);
                 continue;
             }
-            PacketType::LoginSuccess(_) => Ok(server),
+            PacketType::LoginSuccess(_) => {
+                server.change_state(State::Play);
+                Ok(server)
+            }
             PacketType::LoginPluginRequest(_) => unimplemented!("login plugin request"),
             PacketType::Disconnect(Disconnect { reason }) => {
                 server.shutdown().await?;
-                Err(ProxyError::ServerDisconnected(reason))
+                Err(ProxyError::Disconnected(reason))
             },
             _ => Err(anyhow!("unknown packet").into()),
         };

@@ -65,10 +65,7 @@ pub struct StatusResponse<'a> {
 }
 
 impl<'a> Packet for StatusResponse<'a> {
-    fn from_bytes(_buf: &mut BytesMut, _version: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(_buf: &mut BytesMut, _version: ProtocolVersion) -> anyhow::Result<Self> {
         todo!()
     }
 
@@ -82,10 +79,7 @@ pub struct Ping {
 }
 
 impl Packet for Ping {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self { payload: buf.get_i64() })
     }
 

@@ -12,10 +12,7 @@ pub struct LoginStart {
 }
 
 impl Packet for LoginStart {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             username: get_string(buf, 16)?,
             uuid: if get_bool(buf)? { Some(Uuid::from_u128(buf.get_u128())) } else { None },
@@ -40,10 +37,7 @@ pub struct LoginSuccess {
 }
 
 impl Packet for LoginSuccess {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             uuid: Uuid::from_u128(buf.get_u128()),
             username: get_string(buf, 16)?,
@@ -64,10 +58,7 @@ pub struct Disconnect {
 }
 
 impl Packet for Disconnect {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             reason: serde_json::from_str::<Component>(get_string(buf, 262144)?.as_str())?,
         })
@@ -83,10 +74,7 @@ pub struct SetCompression {
 }
 
 impl Packet for SetCompression {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self { threshold: get_varint(buf)? })
     }
 
@@ -102,10 +90,7 @@ pub struct EncryptionRequest {
 }
 
 impl Packet for EncryptionRequest {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             server_id: get_string(buf, 20)?,
             public_key: get_byte_array(buf)?,
@@ -126,10 +111,7 @@ pub struct EncryptionResponse {
 }
 
 impl Packet for EncryptionResponse {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             shared_secret: get_byte_array(buf)?,
             verify_token: get_byte_array(buf)?,
@@ -149,10 +131,7 @@ pub struct LoginPluginRequest {
 }
 
 impl Packet for LoginPluginRequest {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             message_id: get_varint(buf)?,
             channel: get_string(buf, 32767)?,
@@ -174,10 +153,7 @@ pub struct LoginPluginResponse {
 }
 
 impl Packet for LoginPluginResponse {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         let message_id = get_varint(buf)?;
         let successful = get_bool(buf)?;
         Ok(Self {
