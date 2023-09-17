@@ -14,8 +14,6 @@ use crate::{
     protocol::packet::status::{Motd, Players, Status, Version},
 };
 
-//type Handler = fn(Connection) -> anyhow::Result<()>;
-
 pub static STATES: Lazy<Vec<u8>> = Lazy::new(|| {
     let status = Status {
         version: Version {
@@ -32,44 +30,6 @@ pub static STATES: Lazy<Vec<u8>> = Lazy::new(|| {
     };
     serde_json::to_vec(&status).unwrap()
 });
-
-/*
-pub static STATES: Lazy<Arc<RwLock<Vec<u8>>>> = Lazy::new(|| {
-    let status = Status {
-        version: Version {
-            name: "1.19.4",
-            protocol: 762,
-        },
-        players: Players {
-            online: 2,
-            max: 16,
-            sample: vec![],
-        },
-        description: Motd::Component(TextComponent::new("azz".to_string())),
-        favicon: optional_favicon(),
-    };
-    Arc::new(RwLock::new(serde_json::to_vec(&status).unwrap()))
-});
-
-pub fn update() {
-    let pointer = STATES.clone();
-    let writer = (pointer.write()).writer();
-    let status = Status {
-        version: Version {
-            name: "1.19.4",
-            protocol: 762,
-        },
-        players: Players {
-            online: 3,
-            max: 16,
-            sample: vec![],
-        },
-        description: Motd::Component(TextComponent::new("azz".to_string())),
-        favicon: optional_favicon(),
-    };
-    serde_json::to_writer(writer, &status);
-}
-*/
 
 fn optional_favicon() -> Option<String> {
     match read_favicon() {

@@ -65,7 +65,7 @@ pub struct StatusResponse<'a> {
 }
 
 impl<'a> Packet for StatusResponse<'a> {
-    fn from_bytes(_buf: &mut BytesMut, _version: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(_buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         todo!()
     }
 

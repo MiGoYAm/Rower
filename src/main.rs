@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use error::ProxyError;
 use handlers::STATES;
 use log::{error, info};
+use protocol::client::Client;
 use protocol::codec::connection::Connection;
 use protocol::packet::handshake::{Handshake, NextState};
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
@@ -73,7 +74,9 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
     client.change_state(State::Login);
     let LoginStart { username, .. } = client.read_packet().await?;
 
-    if client.protocol < ProtocolVersion::V1_19_2 {
+    let mut client = Client::from_conn(client);
+
+    if client.conn.protocol < ProtocolVersion::V1_19_2 {
         return client.disconnect(Component::text_str("We support versions above 1.19.1")).await;
     }
 
@@ -81,17 +84,17 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
 
     let threshold = CONFIG.threshold;
     if threshold > -1 {
-        client.queue_packet(SetCompression { threshold }).await?;
-        client.enable_compression(threshold);
+        client.conn.queue_packet(SetCompression { threshold }).await?;
+        client.conn.enable_compression(threshold);
     }
 
-    let server = match create_backend_connection(CONFIG.backend_server, client.protocol, &username).await {
+    let server = match create_backend_connection(CONFIG.backend_server, client.conn.protocol, &username).await {
         Ok(server) => server,
         Err(ProxyError::Disconnected(reason)) => return client.disconnect(reason).await,
         Err(ProxyError::Other(error)) => return Err(error)
     };
 
-    client.write_packet(LoginSuccess {
+    client.conn.write_packet(LoginSuccess {
         uuid: generate_offline_uuid(&username),
         username
     }).await?;
@@ -99,17 +102,17 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
     handle_play(client, server).await
 }
 
-async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::Result<()> {
-    client.change_state(State::Play);
+async fn handle_play(mut client: Client, mut server: Connection) -> anyhow::Result<()> {
+    client.conn.change_state(State::Play);
 
     let join: JoinGame = server.read_packet().await?;
-    client.queue_packet(join).await?;
+    client.conn.queue_packet(join).await?;
     
     loop {
         tokio::select! {
-            Ok(packet) = server.next_packet() => {
+            Ok(packet) = server.auto_read() => {
                 match packet {
-                    PacketType::Raw(packet) => client.write_raw_packet(packet).await?,
+                    PacketType::Raw(packet) => client.conn.write_raw_packet(packet).await?,
                     PacketType::PluginMessage(mut packet) => {
                         if packet.channel == "minecraft:brand" {
                             let mut brand = get_string(&mut packet.data, 32700)?;
@@ -118,21 +121,21 @@ async fn handle_play(mut client: Connection, mut server: Connection) -> anyhow::
                             packet.data.clear();
                             put_str(&mut packet.data, &brand);
                         }
-                        client.write_packet(packet).await?;
+                        client.conn.write_packet(packet).await?;
                     },
                     PacketType::Disconnect(_packet) => {
                         server.shutdown().await?;
 
-                        server = create_backend_connection(CONFIG.fallback_server, client.protocol, &"temp".to_string()).await?;
+                        server = create_backend_connection(CONFIG.fallback_server, client.conn.protocol, &"temp".to_string()).await?;
                         let join: JoinGame = server.read_packet().await?;
                         let respawn = Respawn::from_joingame(&join);
-                        client.queue_packet(join).await?;
-                        client.queue_packet(respawn).await?;
+                        client.conn.queue_packet(join).await?;
+                        client.conn.queue_packet(respawn).await?;
                     },
                     _ => println!("server cos wysłał")
                 }
             },
-            Ok(packet) = client.next_packet() => {
+            Ok(packet) = client.conn.auto_read() => {
                 match packet {
                     PacketType::Raw(packet) => server.write_raw_packet(packet).await?,
                     _ => println!("client cos wysłał")
@@ -160,7 +163,7 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
     }).await?;
 
     loop {
-        return match server.next_packet().await? {
+        return match server.auto_read().await? {
             PacketType::EncryptionRequest(_) => unimplemented!("Encryption is not implemented"),
             PacketType::SetCompression(SetCompression { threshold }) => {
                 server.enable_compression(threshold);

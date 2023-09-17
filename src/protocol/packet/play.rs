@@ -92,14 +92,7 @@ impl Packet for JoinGame {
         put_bool(buf, self.respawn_screen);
         put_bool(buf, self.is_debug);
         put_bool(buf, self.is_flat);
-
-        if let Some(death) = self.last_death {
-            put_bool(buf, true);
-            put_string(buf, &death.dimension_name);
-            buf.put_i64(death.position);
-        } else {
-            put_bool(buf, false);
-        }
+        put_death(buf, self.last_death);
     }
 }
 
@@ -119,6 +112,16 @@ impl Death {
         } else {
             Ok(None)
         }
+    }
+}
+
+fn put_death(buf: &mut BytesMut, death: Option<Death>) {
+    if let Some(death) = death {
+        put_bool(buf, true);
+        put_string(buf, &death.dimension_name);
+        buf.put_i64(death.position);
+    } else {
+        put_bool(buf, false);
     }
 }
 
@@ -159,14 +162,7 @@ impl Packet for Respawn {
         put_bool(buf, self.is_debug);
         put_bool(buf, self.is_flat);
         buf.put_u8(self.data_kept);
-
-        if let Some(death) = self.last_death {
-            put_bool(buf, true);
-            put_string(buf, &death.dimension_name);
-            buf.put_i64(death.position);
-        } else {
-            put_bool(buf, false);
-        }
+        put_death(buf, self.last_death);
     }
 }
 

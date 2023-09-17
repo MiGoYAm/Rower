@@ -9,10 +9,10 @@ use tokio::net::{
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::{protocol::{
-    packet::{Packet, PacketType, RawPacket, login::Disconnect},
+use crate::protocol::{
+    packet::{Packet, PacketType, RawPacket},
     Direction, ProtocolVersion, State
-}, component::Component};
+};
 
 use super::{
     decoder::MinecraftDecoder,
@@ -62,7 +62,7 @@ impl Connection {
         (self.receive_registry, self.send_registry) = state.registry().get_registry(&self.direction, &self.protocol);
     }
 
-    pub async fn next_packet(&mut self) -> anyhow::Result<PacketType> {
+    pub async fn auto_read(&mut self) -> anyhow::Result<PacketType> {
         let frame = self.read_raw_packet().await?.buffer;
 
         self.receive_registry.decode(frame, self.protocol)
@@ -118,11 +118,6 @@ impl Connection {
 
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
         self.framed_write.close().await
-    }
-
-    pub async fn disconnect(&mut self, reason: Component) -> anyhow::Result<()> {
-        self.write_packet(Disconnect { reason }).await?;
-        self.shutdown().await
     }
 
     pub fn enable_compression(&mut self, threshold: i32) {

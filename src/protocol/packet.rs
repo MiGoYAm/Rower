@@ -20,12 +20,6 @@ pub trait Packet: Sized {
     fn put_buf(self, buf: &mut BytesMut, version: ProtocolVersion);
 }
 
-/*
-pub struct RawPacket {
-    pub id: u8,
-    pub data: BytesMut,
-}
-*/
 pub struct RawPacket {
     pub buffer: BytesMut,
 }
