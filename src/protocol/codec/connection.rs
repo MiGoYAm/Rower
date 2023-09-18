@@ -63,9 +63,12 @@ impl Connection {
     }
 
     pub async fn auto_read(&mut self) -> anyhow::Result<PacketType> {
-        let frame = self.read_raw_packet().await?.buffer;
+        let mut packet = self.read_raw_packet().await?;
 
-        self.receive_registry.decode(frame, self.protocol)
+        match self.receive_registry.get_packet(packet.id()) {
+            Some(producer) => producer(packet.data(), self.protocol),
+            None => Ok(PacketType::Raw(packet)),
+        }
     }
 
     pub async fn read_packet<T: Packet + 'static>(&mut self) -> anyhow::Result<T> {

@@ -11,85 +11,13 @@ use crate::protocol::{
         login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression},
         play::{PluginMessage, JoinGame, Respawn},
         status::{Ping, StatusRequest, StatusResponse},
-        Packet, PacketType, RawPacket,
+        Packet, PacketType,
     },
     Direction, ProtocolVersion,
 };
+use super::util::produce;
 
 pub type PacketProducer = fn(BytesMut, ProtocolVersion) -> anyhow::Result<PacketType<'static>>;
-
-pub static HANDSHAKE_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<Handshake>(
-        |mut b, v| Ok(PacketType::Handshake(Handshake::from_bytes(&mut b, v)?)),
-        Id::Serverbound(Mapping::Single(0x00)),
-    );
-    registry
-});
-
-pub static STATUS_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<StatusRequest>(|_, _| Ok(PacketType::StatusRequest), Id::Serverbound(Mapping::Single(0x00)));
-    registry.insert::<StatusResponse>(
-        |mut b, v| Ok(PacketType::StatusResponse(StatusResponse::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x00)),
-    );
-    registry.insert::<Ping>(
-        |mut b, v| Ok(PacketType::Ping(Ping::from_bytes(&mut b, v)?)),
-        Id::Both(Mapping::Single(0x01), Mapping::Single(0x01)),
-    );
-    registry
-});
-
-pub static LOGIN_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<Disconnect>(
-        |mut b, v| Ok(PacketType::Disconnect(Disconnect::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x00)),
-    );
-    registry.insert::<LoginStart>(
-        |mut b, v| Ok(PacketType::LoginStart(LoginStart::from_bytes(&mut b, v)?)),
-        Id::Serverbound(Mapping::Single(0x00)),
-    );
-    registry.insert::<EncryptionRequest>(
-        |mut b, v| Ok(PacketType::EncryptionRequest(EncryptionRequest::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x01)),
-    );
-    registry.insert::<EncryptionResponse>(
-        |mut b, v| Ok(PacketType::EncryptionResponse(EncryptionResponse::from_bytes(&mut b, v)?)),
-        Id::Serverbound(Mapping::Single(0x01)),
-    );
-    registry.insert::<SetCompression>(
-        |mut b, v| Ok(PacketType::SetCompression(SetCompression::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x03)),
-    );
-    registry.insert::<LoginSuccess>(
-        |mut b, v| Ok(PacketType::LoginSuccess(LoginSuccess::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x02)),
-    );
-    registry
-});
-
-pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<Disconnect>(
-        |mut b, v| Ok(PacketType::Disconnect(Disconnect::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::List(vec![(0x1a, ProtocolVersion::V1_19_4), (0x17, ProtocolVersion::V1_19_3)])),
-    );
-    registry.insert::<PluginMessage>(
-        |mut b, v| Ok(PacketType::PluginMessage(PluginMessage::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x17)),
-    );
-    registry.insert::<JoinGame>(
-        |mut b, v| Ok(PacketType::JoinGame(JoinGame::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x28))
-    );
-    registry.insert::<Respawn>(
-        |mut b, v| Ok(PacketType::Respawn(Respawn::from_bytes(&mut b, v)?)),
-        Id::Clientbound(Mapping::Single(0x41))
-    );
-    registry
-});
 
 enum Mapping {
     Single(u8),
@@ -101,6 +29,40 @@ enum Id {
     Clientbound(Mapping),
     Both(Mapping, Mapping),
 }
+
+pub static HANDSHAKE_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
+    let mut registry = StateRegistry::new();
+    registry.insert::<Handshake>(produce!(Handshake), Id::Serverbound(Mapping::Single(0x00)));
+    registry
+});
+
+pub static STATUS_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
+    let mut registry = StateRegistry::new();
+    registry.insert::<StatusRequest>(|_, _| Ok(PacketType::StatusRequest), Id::Serverbound(Mapping::Single(0x00)));
+    registry.insert::<StatusResponse>(produce!(StatusResponse), Id::Clientbound(Mapping::Single(0x00)));
+    registry.insert::<Ping>(produce!(Ping), Id::Both(Mapping::Single(0x01), Mapping::Single(0x01)));
+    registry
+});
+
+pub static LOGIN_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
+    let mut registry = StateRegistry::new();
+    registry.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::Single(0x00)));
+    registry.insert::<LoginStart>(produce!(LoginStart), Id::Serverbound(Mapping::Single(0x00)));
+    registry.insert::<EncryptionRequest>(produce!(EncryptionRequest), Id::Clientbound(Mapping::Single(0x01)));
+    registry.insert::<EncryptionResponse>(produce!(EncryptionResponse), Id::Serverbound(Mapping::Single(0x01)));
+    registry.insert::<SetCompression>(produce!(SetCompression), Id::Clientbound(Mapping::Single(0x03)));
+    registry.insert::<LoginSuccess>(produce!(LoginSuccess), Id::Clientbound(Mapping::Single(0x02)));
+    registry
+});
+
+pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
+    let mut registry = StateRegistry::new();
+    registry.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::List(vec![(0x1a, ProtocolVersion::V1_19_4), (0x17, ProtocolVersion::V1_19_3)])));
+    registry.insert::<PluginMessage>(produce!(PluginMessage), Id::Clientbound(Mapping::Single(0x17)));
+    registry.insert::<JoinGame>(produce!(JoinGame), Id::Clientbound(Mapping::Single(0x28)));
+    registry.insert::<Respawn>(produce!(Respawn), Id::Clientbound(Mapping::Single(0x41)));
+    registry
+});
 
 pub struct StateRegistry {
     protocols: HashMap<ProtocolVersion, PacketRegistry>,
@@ -180,14 +142,14 @@ impl PacketRegistry {
 
 pub struct ProtocolRegistry {
     packet_to_id: HashMap<TypeId, u8>,
-    id_to_packet: HashMap<u8, PacketProducer>,
+    id_to_packeta: [Option<PacketProducer>; 128],
 }
 
 impl ProtocolRegistry {
     pub fn new() -> Self {
         Self {
             packet_to_id: HashMap::new(),
-            id_to_packet: HashMap::new(),
+            id_to_packeta: [None; 128]
         }
     }
 
@@ -201,19 +163,14 @@ impl ProtocolRegistry {
     }
 
     fn insert_id_to_packet(&mut self, producer: PacketProducer, id: u8) {
-        self.id_to_packet.insert(id, producer);
+        self.id_to_packeta[id as usize] = Some(producer);
     }
 
-    pub fn decode(&self, mut data: BytesMut, version: ProtocolVersion) -> anyhow::Result<PacketType> {
-        let id = data[0];
-        match self.id_to_packet.get(&id) {
-            Some(function) => function(data.split_off(1), version),
-            None => Ok(PacketType::Raw(RawPacket { buffer: data })),
+    pub fn get_packet(&self, id: u8) -> &Option<PacketProducer> {
+        match self.id_to_packeta.get(id as usize) {
+            Some(option) => option,
+            None => &None
         }
-    }
-
-    pub fn get_packet(&self, id: u8) -> anyhow::Result<&PacketProducer> {
-        self.id_to_packet.get(&id).ok_or(anyhow!("Packet with id {:02X?} does not exist in this state or version", id))
     }
 
     pub fn get_id<T: Packet + 'static>(&self) -> anyhow::Result<&u8> {

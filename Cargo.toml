@@ -49,3 +49,7 @@ harness = false
 [[bench]]
 name = "decoder"
 harness = false
+
+[[bench]]
+name = "registry"
+harness = false

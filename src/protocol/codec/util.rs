@@ -62,3 +62,10 @@ pub fn varint_length_usize(v: u32) -> usize {
         _ => 5
     }
 }
+
+macro_rules! produce {
+    ( $packet:ident ) => {
+        |mut b, v| Ok(PacketType::$packet($packet::from_bytes(&mut b, v)?))
+    };
+}
+pub(crate) use produce; 
