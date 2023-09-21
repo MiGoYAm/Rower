@@ -65,7 +65,7 @@ pub fn varint_length_usize(v: u32) -> usize {
 
 macro_rules! produce {
     ( $packet:ident ) => {
-        |mut b, v| Ok(PacketType::$packet($packet::from_bytes(&mut b, v)?))
+        Some(|b, v| Ok(PacketType::$packet($packet::from_bytes(b, v)?)))
     };
 }
 pub(crate) use produce; 

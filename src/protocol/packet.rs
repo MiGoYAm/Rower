@@ -1,10 +1,8 @@
 use bytes::BytesMut;
 
 use self::{
-    handshake::Handshake,
     login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression, LoginPluginRequest, LoginPluginResponse},
-    play::{PluginMessage, JoinGame, Respawn},
-    status::{Ping, StatusResponse},
+    play::PluginMessage,
 };
 
 use super::ProtocolVersion;
@@ -18,15 +16,6 @@ pub trait Packet: Sized {
     fn from_bytes(buf: &mut BytesMut, version: ProtocolVersion) -> anyhow::Result<Self>;
 
     fn put_buf(self, buf: &mut BytesMut, version: ProtocolVersion);
-
-    /*
-    fn serverbound_id(state: State, version: ProtocolVersion) -> Option<u8> {
-        None
-    }
-    fn clintbound_id(state: State, version: ProtocolVersion) -> Option<u8> {
-        None
-    }
-    */
 }
 
 pub struct RawPacket {
@@ -51,13 +40,8 @@ impl RawPacket {
     }
 }
 
-pub enum PacketType<'a> {
+pub enum PacketType {
     Raw(RawPacket),
-    Handshake(Handshake),
-
-    StatusRequest,
-    StatusResponse(StatusResponse<'a>),
-    Ping(Ping),
 
     LoginStart(LoginStart),
     EncryptionRequest(EncryptionRequest),
@@ -68,7 +52,5 @@ pub enum PacketType<'a> {
     LoginPluginResponse(LoginPluginResponse),
     Disconnect(Disconnect),
 
-    JoinGame(JoinGame),
-    Respawn(Respawn),
     PluginMessage(PluginMessage),
 }

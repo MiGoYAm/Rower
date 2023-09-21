@@ -17,7 +17,7 @@ use crate::protocol::{
 use super::{
     decoder::MinecraftDecoder,
     encoder::MinecraftEncoder,
-    registry::{ProtocolRegistry, HANDSHAKE_REG},
+    registry::{ProtocolRegistry, HANDSHAKE_REG, get_protocol_registry},
 };
 
 pub struct Connection {
@@ -33,7 +33,7 @@ pub struct Connection {
 
 impl Connection {
     fn create(stream: TcpStream, protocol: ProtocolVersion, direction: Direction) -> Self {
-        let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction, &ProtocolVersion::Unknown);
+        let (receive_registry, send_registry) = HANDSHAKE_REG.get_registry(&direction);
         let (reader, writer) = stream.into_split();
 
         Self {
@@ -59,15 +59,19 @@ impl Connection {
     }
 
     pub fn change_state(&mut self, state: State) {
-        (self.receive_registry, self.send_registry) = state.registry().get_registry(&self.direction, &self.protocol);
+        (self.receive_registry, self.send_registry) = get_protocol_registry(state, self.protocol, self.direction);
     }
 
     pub async fn auto_read(&mut self) -> anyhow::Result<PacketType> {
         let mut packet = self.read_raw_packet().await?;
 
-        match self.receive_registry.get_packet(packet.id()) {
-            Some(producer) => producer(packet.data(), self.protocol),
-            None => Ok(PacketType::Raw(packet)),
+        if let Some(producer) = self.receive_registry.get_packet(packet.id()) {
+            let mut data = packet.data();
+            let result = producer(&mut data, self.protocol)?;
+            ensure!(data.is_empty(), "Packet was not been fully read");
+            Ok(result)
+        } else {
+            Ok(PacketType::Raw(packet))
         }
     }
 
@@ -78,7 +82,9 @@ impl Connection {
 
         ensure!(registry_id == &id, "Invalid provided packet. Packet id: Provided: 0x{:02X?}, Got: 0x{:02X?}", registry_id, id);
 
-        T::from_bytes(&mut frame, self.protocol)
+        let result = T::from_bytes(&mut frame, self.protocol)?;
+        ensure!(frame.is_empty(), "Packet was not been fully read");
+        Ok(result)
     }
 
     pub async fn read_raw_packet(&mut self) -> anyhow::Result<RawPacket> {

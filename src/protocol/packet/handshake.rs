@@ -1,8 +1,8 @@
 use anyhow::anyhow;
 use super::Packet;
 use crate::protocol::{
-    util::{get_string, get_varint, put_string, put_varint},
-    ProtocolVersion,
+    util::{get_string, get_varint, put_varint, put_string},
+    ProtocolVersion
 };
 use bytes::{Buf, BufMut, BytesMut};
 

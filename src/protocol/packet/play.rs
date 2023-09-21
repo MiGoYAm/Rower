@@ -1,7 +1,7 @@
 use bytes::{BytesMut, BufMut, Buf};
 
 use crate::protocol::{
-    util::{get_string, put_string, put_bool, put_varint, get_bool, get_array, get_identifier, get_varint},
+    util::{put_bool, put_varint, get_bool, get_array, get_identifier, get_varint, put_string},
     ProtocolVersion, nbt::Compound,
 };
 
@@ -15,7 +15,7 @@ pub struct PluginMessage {
 impl Packet for PluginMessage {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
-            channel: get_string(buf, 32700)?,
+            channel: get_identifier(buf)?,
             data: buf.split(),
         })
     }
@@ -139,18 +139,8 @@ pub struct Respawn {
 }
 
 impl Packet for Respawn {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
-        Ok(Self {
-            dimension_type: get_identifier(buf)?,
-            dimension_name: get_identifier(buf)?,
-            hashed_seed: buf.get_i64(),
-            gamemode: buf.get_u8(),
-            previous_gamemode: buf.get_u8(),
-            is_debug: get_bool(buf)?,
-            is_flat: get_bool(buf)?,
-            data_kept: buf.get_u8(),
-            last_death: Death::get(buf)?,
-        })
+    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+        unreachable!()
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {

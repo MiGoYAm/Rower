@@ -17,7 +17,7 @@ use crate::component::Component;
 
 use crate::config::CONFIG;
 use crate::protocol::packet::status::{Ping, StatusRequest, StatusResponse};
-use crate::protocol::util::{get_string, put_str};
+use crate::protocol::util::{get_string, put_string};
 use crate::protocol::{generate_offline_uuid, ProtocolVersion};
 
 mod component;
@@ -96,7 +96,8 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
 
     client.conn.write_packet(LoginSuccess {
         uuid: generate_offline_uuid(&username),
-        username
+        username,
+        properties: Vec::new()
     }).await?;
 
     handle_play(client, server).await
@@ -119,14 +120,14 @@ async fn handle_play(mut client: Client, mut server: Connection) -> anyhow::Resu
                             brand.push_str(" inside a bike");
 
                             packet.data.clear();
-                            put_str(&mut packet.data, &brand);
+                            put_string(&mut packet.data, &brand);
                         }
-                        client.conn.write_packet(packet).await?;
+                        client.conn.queue_packet(packet).await?;
                     },
                     PacketType::Disconnect(_packet) => {
                         server.shutdown().await?;
 
-                        server = create_backend_connection(CONFIG.fallback_server, client.conn.protocol, &"temp".to_string()).await?;
+                        server = create_backend_connection(CONFIG.fallback_server, client.conn.protocol, "temp").await?;
                         let join: JoinGame = server.read_packet().await?;
                         let respawn = Respawn::from_joingame(&join);
                         client.conn.queue_packet(join).await?;
@@ -146,11 +147,11 @@ async fn handle_play(mut client: Client, mut server: Connection) -> anyhow::Resu
     }
 }
 
-async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: &String) -> Result<Connection, ProxyError> {
+async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: &str) -> Result<Connection, ProxyError> {
     let mut server = Connection::connect(backend_server, version, Direction::Clientbound).await?;
 
     server.queue_packet(Handshake {
-        protocol: version as i32,
+        protocol: version.into(),
         server_address: backend_server.ip().to_string(),
         port: backend_server.port(),
         state: NextState::Login,
@@ -158,7 +159,7 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
 
     server.change_state(State::Login);
     server.write_packet(LoginStart { 
-        username: username.clone(), 
+        username: username.to_owned(), 
         uuid: None 
     }).await?;
 

@@ -98,7 +98,7 @@ impl Tag {
             }
             Tag::String(v) => write_string(v, buf),
             Tag::List(v) => {
-                if v.len() <= 0 {
+                if v.is_empty() {
                     buf.put_u8(0x00);
                     buf.put_i32(0);
                     return;

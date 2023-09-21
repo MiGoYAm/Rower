@@ -1,7 +1,7 @@
-use crate::protocol::util::{get_bool, get_byte_array, get_string, get_varint, put_bool, put_byte_array, put_str, put_string, put_varint};
+use crate::protocol::util::{get_bool, get_byte_array, get_string, get_varint, put_bool, put_byte_array, put_string, put_varint, get_identifier, get_array, get_property, put_array, put_property};
 use crate::protocol::ProtocolVersion;
 use crate::Component;
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BytesMut};
 use uuid::Uuid;
 
 use super::Packet;
@@ -31,9 +31,16 @@ impl Packet for LoginStart {
     }
 }
 
+pub struct Property {
+    pub name: String,
+    pub value: String,
+    pub signature: Option<String>
+}
+
 pub struct LoginSuccess {
     pub uuid: Uuid,
     pub username: String,
+    pub properties: Vec<Property>
 }
 
 impl Packet for LoginSuccess {
@@ -41,15 +48,14 @@ impl Packet for LoginSuccess {
         Ok(Self {
             uuid: Uuid::from_u128(buf.get_u128()),
             username: get_string(buf, 16)?,
+            properties: get_array(buf, get_property)?
         })
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        buf.put_u128(self.uuid.as_u128());
-        //put_string(buf, &self.username);
-        put_str(buf, &self.username);
-        // length of properties
-        buf.put_u8(0);
+        buf.extend_from_slice(self.uuid.as_bytes());
+        put_string(buf, &self.username);
+        put_array(buf, self.properties, put_property);
     }
 }
 
@@ -134,7 +140,7 @@ impl Packet for LoginPluginRequest {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             message_id: get_varint(buf)?,
-            channel: get_string(buf, 32767)?,
+            channel: get_identifier(buf)?,
             data: buf.split(),
         })
     }
@@ -159,7 +165,7 @@ impl Packet for LoginPluginResponse {
         Ok(Self {
             message_id,
             successful,
-            data: if successful { Some(buf.split()) } else { None },
+            data: if successful && !buf.is_empty() { Some(buf.split()) } else { None },
         })
     }
 
@@ -167,11 +173,10 @@ impl Packet for LoginPluginResponse {
         put_varint(buf, self.message_id as u32);
         put_bool(buf, self.successful);
 
-        if !self.successful {
-            return;
-        }
-        if let Some(data) = &self.data {
-            buf.extend_from_slice(data);
+        if self.successful {
+            if let Some(data) = &self.data {
+                buf.extend_from_slice(data);
+            }
         }
     }
 }

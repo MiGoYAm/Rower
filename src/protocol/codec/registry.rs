@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap};
+use std::{any::TypeId, collections::HashMap, vec};
 
 use anyhow::anyhow;
 use bytes::BytesMut;
@@ -13,11 +13,20 @@ use crate::protocol::{
         status::{Ping, StatusRequest, StatusResponse},
         Packet, PacketType,
     },
-    Direction, ProtocolVersion,
+    Direction, ProtocolVersion, State,
 };
 use super::util::produce;
 
-pub type PacketProducer = fn(BytesMut, ProtocolVersion) -> anyhow::Result<PacketType<'static>>;
+pub type PacketProducer = fn(&mut BytesMut, ProtocolVersion) -> anyhow::Result<PacketType>;
+
+pub fn get_protocol_registry(state: State, version: ProtocolVersion, direction: Direction) -> (&'static ProtocolRegistry, &'static ProtocolRegistry) {
+    match state {
+        State::Handshake => HANDSHAKE_REG.get_registry(&direction),
+        State::Status => STATUS_REG.get_registry(&direction),
+        State::Login => LOGIN_REG.get_registry(&direction, &version),
+        State::Play => PLAY_REG.get_registry(&direction, &version),
+    }
+}
 
 enum Mapping {
     Single(u8),
@@ -30,17 +39,20 @@ enum Id {
     Both(Mapping, Mapping),
 }
 
-pub static HANDSHAKE_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<Handshake>(produce!(Handshake), Id::Serverbound(Mapping::Single(0x00)));
+pub static HANDSHAKE_REG: sync::Lazy<PacketRegistry> = sync::Lazy::new(|| {
+    let mut registry = PacketRegistry::new();
+    registry.serverbound.insert_packet_to_id::<Handshake>(0x00);
     registry
 });
 
-pub static STATUS_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<StatusRequest>(|_, _| Ok(PacketType::StatusRequest), Id::Serverbound(Mapping::Single(0x00)));
-    registry.insert::<StatusResponse>(produce!(StatusResponse), Id::Clientbound(Mapping::Single(0x00)));
-    registry.insert::<Ping>(produce!(Ping), Id::Both(Mapping::Single(0x01), Mapping::Single(0x01)));
+pub static STATUS_REG: sync::Lazy<PacketRegistry> = sync::Lazy::new(|| {
+    let mut registry = PacketRegistry::new();
+    registry.serverbound.insert_packet_to_id::<StatusRequest>(0x00);
+    registry.clientbound.insert_packet_to_id::<StatusResponse>(0x00);
+
+    registry.serverbound.insert_packet_to_id::<Ping>(0x01);
+    registry.clientbound.insert_packet_to_id::<Ping>(0x01);
+
     registry
 });
 
@@ -59,55 +71,54 @@ pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     let mut registry = StateRegistry::new();
     registry.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::List(vec![(0x1a, ProtocolVersion::V1_19_4), (0x17, ProtocolVersion::V1_19_3)])));
     registry.insert::<PluginMessage>(produce!(PluginMessage), Id::Clientbound(Mapping::Single(0x17)));
-    registry.insert::<JoinGame>(produce!(JoinGame), Id::Clientbound(Mapping::Single(0x28)));
-    registry.insert::<Respawn>(produce!(Respawn), Id::Clientbound(Mapping::Single(0x41)));
+    registry.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
+    registry.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
     registry
 });
 
 pub struct StateRegistry {
-    protocols: HashMap<ProtocolVersion, PacketRegistry>,
+    protocols: Vec<PacketRegistry>
 }
 
 impl StateRegistry {
     pub fn new() -> Self {
         Self {
-            protocols: ProtocolVersion::iter().map(|x| (x, PacketRegistry::new())).collect(),
+            protocols: vec![PacketRegistry::new(); ProtocolVersion::iter().count()]
         }
     }
 
     pub fn get_registry(&self, direction: &Direction, protocol: &ProtocolVersion) -> (&ProtocolRegistry, &ProtocolRegistry) {
-        let registry = self.protocols.get(protocol).unwrap();
-        match direction {
-            Direction::Clientbound => (&registry.clientbound, &registry.serverbound),
-            Direction::Serverbound => (&registry.serverbound, &registry.clientbound),
+        self.protocols.get(*protocol as usize).unwrap().get_registry(direction)
+    }
+
+    fn some<T: Packet + 'static>(registry: &mut PacketRegistry, direction: Direction, id: u8, producer: Option<PacketProducer>) {
+        let registry = match direction {
+            Direction::Clientbound => &mut registry.clientbound,
+            Direction::Serverbound => &mut registry.serverbound,
+        };
+        match producer {
+            Some(producer) => registry.insert::<T>(producer, id),
+            None => registry.insert_packet_to_id::<T>(id)
         }
     }
 
-    fn insert_mapping<T: Packet + 'static>(&mut self, producer: PacketProducer, mapping: Mapping, direction: Direction) {
+    fn insert_mapping<T: Packet + 'static>(&mut self, producer: Option<PacketProducer>, mapping: Mapping, direction: Direction) {
         match mapping {
             Mapping::Single(id) => {
-                for packet_registry in self.protocols.values_mut() {
-                    match direction {
-                        Direction::Clientbound => &mut packet_registry.clientbound,
-                        Direction::Serverbound => &mut packet_registry.serverbound,
-                    }
-                    .insert::<T>(producer, id)
+                for packet_registry in &mut self.protocols {
+                    Self::some::<T>(packet_registry, direction, id, producer);
                 }
             }
             Mapping::List(mut list) => {
                 list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-                for (index, (id, first_version)) in list.iter().enumerate() {
-                    let next_version = list.get(index + 1).get_or_insert(&(0x00, ProtocolVersion::V1_19_4)).1;
+                for (index, (id, first_version)) in list.iter().map(|(i, v)| (i, *v as usize)).enumerate() {
+                    let next_version = *list.get(index + 1).map(|e| e.1 as usize).get_or_insert(ProtocolVersion::V1_19_4 as usize);
                     let is_last = list.len() - 1 == index;
 
-                    for (version, packet_registry) in &mut self.protocols {
-                        if *version >= *first_version && (*version < next_version || is_last) {
-                            match direction {
-                                Direction::Clientbound => &mut packet_registry.clientbound,
-                                Direction::Serverbound => &mut packet_registry.serverbound,
-                            }
-                            .insert::<T>(producer, *id);
+                    for (version, packet_registry) in self.protocols.iter_mut().enumerate() {
+                        if version >= first_version && (version < next_version || is_last) {
+                            Self::some::<T>(packet_registry, direction, *id, producer);
                         }
                     }
                 }
@@ -115,7 +126,7 @@ impl StateRegistry {
         };
     }
 
-    fn insert<T: Packet + 'static>(&mut self, packet_producer: PacketProducer, id: Id) {
+    fn insert<T: Packet + 'static>(&mut self, packet_producer: Option<PacketProducer>, id: Id) {
         match id {
             Id::Serverbound(mapping) => self.insert_mapping::<T>(packet_producer, mapping, Direction::Serverbound),
             Id::Clientbound(mapping) => self.insert_mapping::<T>(packet_producer, mapping, Direction::Clientbound),
@@ -127,10 +138,12 @@ impl StateRegistry {
     }
 }
 
-struct PacketRegistry {
+#[derive(Clone)]
+pub struct PacketRegistry {
     pub serverbound: ProtocolRegistry,
     pub clientbound: ProtocolRegistry,
 }
+
 impl PacketRegistry {
     pub fn new() -> Self {
         Self {
@@ -138,8 +151,16 @@ impl PacketRegistry {
             clientbound: ProtocolRegistry::new(),
         }
     }
+
+    pub fn get_registry(&self, direction: &Direction) -> (&ProtocolRegistry, &ProtocolRegistry) {
+        match direction {
+            Direction::Clientbound => (&self.clientbound, &self.serverbound),
+            Direction::Serverbound => (&self.serverbound, &self.clientbound),
+        }
+    }
 }
 
+#[derive(Clone)]
 pub struct ProtocolRegistry {
     packet_to_id: HashMap<TypeId, u8>,
     id_to_packeta: [Option<PacketProducer>; 128],

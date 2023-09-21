@@ -1,6 +1,8 @@
 use anyhow::{anyhow, ensure};
 use bytes::{Buf, BufMut, BytesMut};
 
+use super::packet::login::Property;
+
 pub fn get_varint(buf: &mut impl Buf) -> anyhow::Result<i32> {
     let mut i = 0;
     let max_read = 5.min(buf.remaining());
@@ -59,7 +61,7 @@ pub fn get_string(buf: &mut BytesMut, cap: i32) -> anyhow::Result<String> {
     Ok(String::from_utf8(bytes.to_vec())?)
 }
 
-pub fn put_string(buf: &mut BytesMut, s: &String) {
+pub fn put_string(buf: &mut BytesMut, s: &str) {
     let s = s.as_bytes();
     put_varint(buf, s.len() as u32);
     buf.extend_from_slice(s);
@@ -69,18 +71,10 @@ pub fn get_identifier(buf: &mut BytesMut) -> anyhow::Result<String> {
     get_string(buf, 32767)
 }
 
-pub fn put_str(buf: &mut BytesMut, s: &str) {
-    let s = s.as_bytes();
-    put_varint(buf, s.len() as u32);
-    buf.extend_from_slice(s);
-}
-
 pub fn get_byte_array(buf: &mut BytesMut) -> anyhow::Result<Vec<u8>> {
     let lenght = get_varint(buf)? as usize;
 
-    if lenght > buf.remaining() {
-        return Err(anyhow!("Invalid byte array lenght"));
-    }
+    ensure!(lenght <= buf.remaining(), "Invalid byte array lenght");
 
     let mut array = vec![0; lenght];
     buf.copy_to_slice(&mut array);
@@ -92,6 +86,33 @@ pub fn put_byte_array(buf: &mut BytesMut, bytes: &Vec<u8>) {
     buf.extend_from_slice(bytes);
 }
 
+pub fn get_option<T>(buf: &mut BytesMut, fun: fn(&mut BytesMut) -> anyhow::Result<T>) -> anyhow::Result<Option<T>> {
+    if get_bool(buf)? {
+        Ok(Some(fun(buf)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn get_property(buf: &mut BytesMut) -> anyhow::Result<Property> {
+    Ok(Property {
+        name: get_string(buf, 32767)?,
+        value: get_string(buf, 32767)?,
+        signature: if get_bool(buf)? { Some(get_string(buf, 32767)?) } else { None },
+    })
+}
+
+pub fn put_property(buf: &mut BytesMut, property: &Property) {
+    put_string(buf, &property.name);
+    put_string(buf, &property.value);
+    if let Some(signature) = &property.signature  {
+        put_bool(buf, true);
+        put_string(buf, signature);
+    } else {
+        put_bool(buf, false);
+    }
+}
+
 pub fn get_array<T>(buf: &mut BytesMut, fun: fn(&mut BytesMut) -> anyhow::Result<T>) -> anyhow::Result<Vec<T>> {
     let length = get_varint(buf)? as usize;
     let mut array = Vec::with_capacity(length);
@@ -101,4 +122,11 @@ pub fn get_array<T>(buf: &mut BytesMut, fun: fn(&mut BytesMut) -> anyhow::Result
     }
 
     Ok(array)
+}
+
+pub fn put_array<T>(buf: &mut BytesMut, vec: Vec<T>, fun: fn(&mut BytesMut, &T)) {
+    put_varint(buf, vec.len() as u32);
+    for item in &vec {
+        fun(buf, item)
+    }
 }
