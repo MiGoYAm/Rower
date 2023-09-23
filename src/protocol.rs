@@ -200,8 +200,8 @@ impl std::convert::From<ProtocolVersion> for i32 {
 }
 
 pub fn generate_offline_uuid(username: &String) -> Uuid {
-    let mut hasher = Md5::new();
-    hasher.update(("OfflinePlayer:".to_string() + username).as_bytes());
+    let mut hasher = Md5::new_with_prefix(b"OfflinePlayer:");
+    hasher.update(username.as_bytes());
     let hash = hasher.finalize();
 
     uuid::Builder::from_md5_bytes(hash.into()).into_uuid()
