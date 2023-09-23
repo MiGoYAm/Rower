@@ -98,10 +98,10 @@ impl Connection {
         self.framed_write.feed(packet).await?;
 
         if self.framed_read.read_buffer().is_empty() {
-            return self.framed_write.flush().await;
+            self.framed_write.flush().await
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {

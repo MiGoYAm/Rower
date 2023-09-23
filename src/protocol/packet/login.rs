@@ -1,7 +1,7 @@
-use crate::protocol::util::{get_bool, get_byte_array, get_string, get_varint, put_bool, put_byte_array, put_string, put_varint, get_identifier, get_array, get_property, put_array, put_property};
+use crate::protocol::util::{get_bool, get_byte_array, get_string, get_varint, put_bool, put_byte_array, put_string, put_varint, get_identifier, get_array, get_property, put_array, put_property, get_uuid, get_component, put_component, put_uuid};
 use crate::protocol::ProtocolVersion;
 use crate::Component;
-use bytes::{Buf, BytesMut};
+use bytes::BytesMut;
 use uuid::Uuid;
 
 use super::Packet;
@@ -15,7 +15,7 @@ impl Packet for LoginStart {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             username: get_string(buf, 16)?,
-            uuid: if get_bool(buf)? { Some(Uuid::from_u128(buf.get_u128())) } else { None },
+            uuid: if get_bool(buf)? { Some(get_uuid(buf)) } else { None },
         })
     }
 
@@ -24,7 +24,7 @@ impl Packet for LoginStart {
         match self.uuid {
             Some(uuid) => {
                 put_bool(buf, true);
-                buf.extend_from_slice(uuid.as_bytes());
+                put_uuid(buf, uuid);
             }
             None => put_bool(buf, false),
         }
@@ -46,14 +46,14 @@ pub struct LoginSuccess {
 impl Packet for LoginSuccess {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
-            uuid: Uuid::from_u128(buf.get_u128()),
+            uuid: get_uuid(buf),
             username: get_string(buf, 16)?,
             properties: get_array(buf, get_property)?
         })
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        buf.extend_from_slice(self.uuid.as_bytes());
+        put_uuid(buf, self.uuid);
         put_string(buf, &self.username);
         put_array(buf, self.properties, put_property);
     }
@@ -66,12 +66,12 @@ pub struct Disconnect {
 impl Packet for Disconnect {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
-            reason: serde_json::from_str::<Component>(get_string(buf, 262144)?.as_str())?,
+            reason: get_component(buf)?,
         })
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        put_string(buf, &serde_json::to_string(&self.reason).unwrap());
+        put_component(buf, &self.reason)
     }
 }
 

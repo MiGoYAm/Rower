@@ -1,3 +1,7 @@
+use std::net::SocketAddr;
+
+use uuid::Uuid;
+
 use crate::component::Component;
 
 use super::{codec::connection::Connection, packet::login::Disconnect};
@@ -15,4 +19,11 @@ impl Client {
         self.conn.write_packet(Disconnect { reason }).await?;
         self.conn.shutdown().await
     }
+}
+
+pub struct ConnectionInfo {
+    pub username: String,
+    pub uuid: Uuid,
+    pub server: SocketAddr,
+    pub boss_bars: Vec<Uuid>
 }

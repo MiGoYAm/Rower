@@ -1,9 +1,11 @@
+use anyhow::{bail, anyhow};
 use bytes::{BytesMut, BufMut, Buf};
+use uuid::Uuid;
 
-use crate::protocol::{
-    util::{put_bool, put_varint, get_bool, get_array, get_identifier, get_varint, put_string},
+use crate::{protocol::{
+    util::{put_bool, put_varint, get_bool, get_array, get_identifier, get_varint, put_string, put_component, get_component, get_uuid, put_uuid},
     ProtocolVersion, nbt::Compound,
-};
+}, component::Component};
 
 use super::Packet;
 
@@ -168,6 +170,132 @@ impl Respawn {
             is_flat: packet.is_flat,
             data_kept: 0,
             last_death: packet.last_death.clone()
+        }
+    }
+}
+
+pub struct BossBar {
+    pub uuid: Uuid,
+    pub action: BossBarAction
+}
+
+pub enum BossBarAction {
+    Add {
+        title: Component,
+        health: f32,
+        color: BossBarColor, 
+        division: BossBarDivision,
+        flags: u8
+    },
+    Remove,
+    UpdateHealth(f32),
+    UpdateTitle(Component),
+    UpdateStyle(BossBarColor, BossBarDivision),
+    UpdateFlags(u8)
+}
+
+pub enum BossBarColor {
+    Pink,
+    Blue,
+    Red,
+    Green,
+    Yellow,
+    Purple,
+    White
+}
+
+impl TryFrom<u8> for BossBarColor {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Pink),
+            1 => Ok(Self::Blue),
+            2 => Ok(Self::Red),
+            3 => Ok(Self::Green),
+            4 => Ok(Self::Yellow),
+            5 => Ok(Self::Purple),
+            6 => Ok(Self::White),
+            value => Err(anyhow!("conversion from byte {} to bossbar color", value))
+        }
+    }
+}
+
+pub enum BossBarDivision {
+    None,
+    SixNotches,
+    TenNotches,
+    TwelveNotches,
+    TwentyNotches
+}
+
+impl TryFrom<u8> for BossBarDivision {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::None),
+            1 => Ok(Self::SixNotches),
+            2 => Ok(Self::TenNotches),
+            3 => Ok(Self::TwelveNotches),
+            4 => Ok(Self::TwentyNotches),
+            value => Err(anyhow!("conversion from byte {} to bossbar division", value))
+        }
+    }
+}
+
+impl Packet for BossBar {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+        Ok(Self {
+            uuid: get_uuid(buf),
+            action: match buf.get_u8() {
+                0 => BossBarAction::Add {
+                    title: get_component(buf)?, 
+                    health: buf.get_f32(), 
+                    color: buf.get_u8().try_into()?,
+                    division: buf.get_u8().try_into()?, 
+                    flags: buf.get_u8()
+                },
+                1 => BossBarAction::Remove,
+                2 => BossBarAction::UpdateHealth(buf.get_f32()),
+                3 => BossBarAction::UpdateTitle(get_component(buf)?),
+                4 => BossBarAction::UpdateStyle(buf.get_u8().try_into()?, buf.get_u8().try_into()?),
+                5 => BossBarAction::UpdateFlags(buf.get_u8()),
+                value => bail!("bossbar decoding byte {}", value)
+            },
+        })
+    }
+
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
+        put_uuid(buf, self.uuid);
+
+        match self.action {
+            BossBarAction::Add { title, health, color, division, flags } => {
+                buf.put_u8(0);
+                put_component(buf, &title);
+                buf.put_f32(health);
+                buf.put_u8(color as u8);
+                buf.put_u8(division as u8);
+                buf.put_u8(flags);
+            },
+            BossBarAction::Remove => buf.put_u8(1),
+            BossBarAction::UpdateHealth(health) => {
+                buf.put_u8(2);
+                buf.put_f32(health)
+            },
+            BossBarAction::UpdateTitle(title) => {
+                buf.put_u8(3);
+                put_component(buf, &title);
+            }
+            BossBarAction::UpdateStyle(color, division) => {
+                buf.put_u8(4);
+                buf.put_u8(color as u8);
+                buf.put_u8(division as u8);
+            }
+            BossBarAction::UpdateFlags(flags) => {
+                buf.put_u8(5);
+                buf.put_u8(flags);
+            },
         }
     }
 }

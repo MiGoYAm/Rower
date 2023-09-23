@@ -1,5 +1,8 @@
 use anyhow::{anyhow, ensure};
 use bytes::{Buf, BufMut, BytesMut};
+use uuid::Uuid;
+
+use crate::component::Component;
 
 use super::packet::login::Property;
 
@@ -61,10 +64,9 @@ pub fn get_string(buf: &mut BytesMut, cap: i32) -> anyhow::Result<String> {
     Ok(String::from_utf8(bytes.to_vec())?)
 }
 
-pub fn put_string(buf: &mut BytesMut, s: &str) {
-    let s = s.as_bytes();
-    put_varint(buf, s.len() as u32);
-    buf.extend_from_slice(s);
+pub fn put_string(buf: &mut BytesMut, str: &str) {
+    put_varint(buf, str.len() as u32);
+    buf.extend_from_slice(str.as_bytes());
 }
 
 pub fn get_identifier(buf: &mut BytesMut) -> anyhow::Result<String> {
@@ -129,4 +131,22 @@ pub fn put_array<T>(buf: &mut BytesMut, vec: Vec<T>, fun: fn(&mut BytesMut, &T))
     for item in &vec {
         fun(buf, item)
     }
+}
+
+pub fn get_component(buf: &mut BytesMut) -> anyhow::Result<Component> {
+    Ok(serde_json::from_str::<Component>(get_string(buf, 262144)?.as_str())?)
+}
+
+pub fn put_component(buf: &mut BytesMut, component: &Component) {
+    put_string(buf, &serde_json::to_string(component).unwrap());
+}
+
+pub fn get_uuid(buf: &mut BytesMut) -> Uuid {
+    let mut bytes = [0; 16];
+    buf.copy_to_slice(&mut bytes);
+    Uuid::from_bytes(bytes)
+}
+
+pub fn put_uuid(buf: &mut BytesMut, uuid: Uuid) {
+    buf.extend_from_slice(uuid.as_bytes());
 }

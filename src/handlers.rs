@@ -25,7 +25,7 @@ pub static STATES: Lazy<Vec<u8>> = Lazy::new(|| {
             max: 16,
             sample: vec![],
         },
-        description: Motd::Component(Component::text_str("azz")),
+        description: Motd::Component(Component::text("azz")),
         favicon: optional_favicon(),
     };
     serde_json::to_vec(&status).unwrap()

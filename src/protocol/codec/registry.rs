@@ -9,7 +9,7 @@ use crate::protocol::{
     packet::{
         handshake::Handshake,
         login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression},
-        play::{PluginMessage, JoinGame, Respawn},
+        play::{PluginMessage, JoinGame, Respawn, BossBar},
         status::{Ping, StatusRequest, StatusResponse},
         Packet, PacketType,
     },
@@ -73,6 +73,7 @@ pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     registry.insert::<PluginMessage>(produce!(PluginMessage), Id::Clientbound(Mapping::Single(0x17)));
     registry.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
     registry.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
+    registry.insert::<BossBar>(produce!(BossBar), Id::Clientbound(Mapping::Single(0x0b)));
     registry
 });
 

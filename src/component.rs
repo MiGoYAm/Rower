@@ -1,123 +1,106 @@
 #![allow(dead_code)]
-
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, Deserializer, de::{Visitor, self}};
 use serde_with::skip_serializing_none;
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum Color {
+    Black,
+    DarkBlue,
+    DarkGreen,
+    DarkAqua,
+    DarkRed,
+    DarkPurple,
+    Gold,
+    Gray,
+    DarkGray,
+    Blue,
+    Green,
+    Aqua,
+    Red,
+    LightPurple,
+    Yellow,
+    White,
+    #[serde(serialize_with = "color_serialize", deserialize_with = "color_deserialize")]
+    #[serde(untagged)]
     Rgb(u8, u8, u8),
 }
 
-impl Color {
-    pub const BLACK: Color = Color::Rgb(0, 0, 0);
-    pub const DARK_BLUE: Color = Color::Rgb(0, 0, 42);
-    pub const DARK_GREEN: Color = Color::Rgb(0, 42, 0);
-    pub const DARK_AQUA: Color = Color::Rgb(0, 42, 42);
-    pub const DARK_RED: Color = Color::Rgb(42, 0, 0);
-    pub const DARK_PURPLE: Color = Color::Rgb(42, 0, 42);
-    pub const GOLD: Color = Color::Rgb(42, 42, 0);
-    pub const GRAY: Color = Color::Rgb(42, 42, 42);
-    pub const DARK_GRAY: Color = Color::Rgb(21, 21, 21);
-    pub const BLUE: Color = Color::Rgb(21, 21, 63);
-    pub const GREEN: Color = Color::Rgb(21, 63, 21);
-    pub const AQUA: Color = Color::Rgb(21, 63, 63);
-    pub const RED: Color = Color::Rgb(63, 21, 21);
-    pub const LIGHT_PURPLE: Color = Color::Rgb(63, 21, 63);
-    pub const YELLOW: Color = Color::Rgb(63, 63, 21);
-    pub const WHITE: Color = Color::Rgb(63, 63, 63);
+fn color_serialize<S>(red: &u8, green: &u8, blue: &u8, s: S) -> Result<S::Ok, S::Error> 
+where 
+    S: Serializer
+{
+    s.serialize_str(&format!("#{:02X}{:02X}{:02X}", red, green, blue))
 }
 
-/* todo
-
-pub enum Type {
-    Text(String),
-    Translation {
-        translate: String,
-        with: Option<Vec<Component>>
-    },
-    Keybind(String)
+fn color_deserialize<'de, D>(d: D) -> Result<(u8, u8, u8), D::Error> 
+where 
+    D: Deserializer<'de>
+{
+    d.deserialize_str(ColorVisitor)
 }
 
-impl Serialize for Type {
-    fn serialize<S>(&self, serializer: S) -> anyhow::Result<S::Ok, S::Error>
-    where S: serde::Serializer {
-        match self {
-            Type::Text(text) =>
-                serializer.serialize_newtype_variant("type", 0, "text", text),
-            Type::Translation { translate, with } => {
-                let mut state =
-                    serializer.serialize_struct("translation", 2)?;
-                state.serialize_field("translate", translate)?;
-                state.serialize_field("with", with)?;
-                state.end()
-            },
-            Type::Keybind(key) =>
-                serializer.serialize_newtype_variant("type", 1, "key", key),
+fn hex<E>(src: &[u8]) -> Result<u8, E>
+where
+    E: de::Error 
+{
+    let str = String::from_utf8_lossy(src);
+    u8::from_str_radix(&str, 16).map_err(|e| E::custom(e))
+}
+
+struct ColorVisitor;
+
+impl<'de> Visitor<'de> for ColorVisitor {
+    type Value = (u8, u8, u8);
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string color in hex")
+    }
+
+    fn visit_str<E>(self, str: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error
+    {
+        let bytes = str.as_bytes();
+        if str.len() != 7 || bytes[0] != b'#' {
+            return Err(E::custom("string is not a color"));
         }
-    }
-}
 
-impl<'de> Deserialize<'de> for Type {
-    fn deserialize<D>(deserializer: D) -> anyhow::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de> {
-        todo!()
+        Ok((hex(&bytes[1..=2])?, hex(&bytes[3..=4])?, hex(&bytes[5..=6])?))
     }
 }
-*/
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
+#[serde(rename_all = "lowercase")]
 pub enum Type {
-    Text {
-        text: String,
-    },
+    Text(String),
+    Keybind(String),
+    #[serde(untagged)]
     Translation {
         translate: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         with: Option<Vec<Component>>,
-    },
-    Keybind {
-        keybind: String,
     },
 }
 
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Component {
-    #[serde(flatten)]
-    pub content: Type,
-
     pub bold: Option<bool>,
     pub italic: Option<bool>,
     pub underlined: Option<bool>,
     pub strikethrough: Option<bool>,
     pub obfuscated: Option<bool>,
     pub font: Option<String>,
-    //pub color: Option<Color>,
+    pub color: Option<Color>,
     pub insertion: Option<String>,
     pub extra: Option<Vec<Component>>,
+    #[serde(flatten)]
+    pub content: Type,
 }
 
 impl Component {
-    pub fn text(text: String) -> Self {
-        Self {
-            content: Type::Text { text },
-            bold: None,
-            italic: None,
-            underlined: None,
-            strikethrough: None,
-            obfuscated: None,
-            font: None,
-            insertion: None,
-            extra: None,
-        }
-    }
-
-    pub fn text_str(text: &str) -> Self {
-        Self::text(text.to_string())
-    }
-
-    pub fn content(content: Type) -> Self {
+    pub const fn content(content: Type) -> Self {
         Self {
             content,
             bold: None,
@@ -126,23 +109,22 @@ impl Component {
             strikethrough: None,
             obfuscated: None,
             font: None,
+            color: None,
             insertion: None,
             extra: None,
         }
     }
 
-    pub fn overwrite_extra(&mut self, components: Vec<Component>) {
-        self.extra = Some(components);
+    pub fn text(text: &str) -> Self {
+        Self::content(Type::Text(text.to_owned()))
     }
-
+    
     pub fn append(&mut self, mut components: Vec<Component>) {
-        let extra = self.extra.get_or_insert(Vec::new());
-        extra.append(&mut components);
+        self.extra.get_or_insert(Vec::new()).append(&mut components);
     }
 
     pub fn push(&mut self, component: Component) {
-        let extra = self.extra.get_or_insert(Vec::new());
-        extra.push(component)
+        self.extra.get_or_insert(Vec::new()).push(component)
     }
 
     pub fn bold(&mut self, b: bool) {

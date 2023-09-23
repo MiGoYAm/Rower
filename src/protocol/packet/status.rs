@@ -3,6 +3,7 @@ use crate::protocol::ProtocolVersion;
 use crate::Component;
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Serialize, Serializer};
+use uuid::Uuid;
 
 use super::Packet;
 
@@ -32,7 +33,7 @@ pub struct Players {
 #[derive(Serialize)]
 pub struct SamplePlayer {
     pub name: &'static str,
-    pub id: uuid::Uuid,
+    pub id: Uuid,
 }
 pub enum Motd {
     Component(Component),
@@ -43,7 +44,7 @@ impl Serialize for Motd {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             Motd::Component(c) => c.serialize(serializer),
-            Motd::Plain(s) => serializer.serialize_str(s.as_str()),
+            Motd::Plain(s) => serializer.serialize_str(s),
         }
     }
 }
