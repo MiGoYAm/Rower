@@ -64,7 +64,6 @@ pub const V1_8: i32 = 47;
 pub const V1_7_6: i32 = 5;
 pub const V1_7_2: i32 = 4;
 
-#[repr(i32)]
 #[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Hash, EnumIter)]
 pub enum ProtocolVersion {
     Unknown,

@@ -67,7 +67,7 @@ pub struct StatusResponse<'a> {
 
 impl<'a> Packet for StatusResponse<'a> {
     fn from_bytes(_buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
-        todo!()
+        unimplemented!("read status response")
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {

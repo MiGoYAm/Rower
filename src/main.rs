@@ -1,3 +1,4 @@
+
 use std::net::SocketAddr;
 
 use anyhow::anyhow;
@@ -5,13 +6,14 @@ use error::ProxyError;
 use handlers::STATES;
 use log::{error, info};
 use protocol::client::{Client, ConnectionInfo};
-use protocol::codec::connection::Connection;
+use protocol::codec::connection::{Connection, ReadHalf, WriteHalf};
 use protocol::packet::handshake::{Handshake, NextState};
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
 use protocol::packet::PacketType;
 use protocol::packet::play::{JoinGame, Respawn};
 use protocol::{Direction, State};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task;
 use uuid::Uuid;
 
 use crate::component::Component;
@@ -33,15 +35,20 @@ async fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(log::Level::Info)?;
 
     let listener = TcpListener::bind(CONFIG.address).await?;
-
     info!("Listening on {}", CONFIG.address);
 
+    let local = task::LocalSet::new();
+    local.run_until(listen(listener)).await
+}
+
+async fn listen(listener: TcpListener) -> anyhow::Result<()> {
     loop {
         let (stream, _) = listener.accept().await?;
         stream.set_nodelay(true)?;
-
-        tokio::spawn(handle(stream));
+    
+        task::spawn_local(handle(stream));
     }
+    
 }
 
 async fn handle(stream: TcpStream) {
@@ -112,69 +119,88 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
     handle_play(client, server, conn_info).await
 }
 
-async fn handle_play(mut client: Client, mut server: Connection, mut connection: ConnectionInfo) -> anyhow::Result<()> {
+async fn handle_play(mut client: Client, mut server: Connection, connection: ConnectionInfo) -> anyhow::Result<()> {
     client.conn.change_state(State::Play);
 
     let join: JoinGame = server.read_packet().await?;
     client.conn.queue_packet(join).await?;
-    
+
+    let client = client.conn.split();
+    let server = server.split();
+
+    let server_handle = task::spawn_local(handle_server(server.0, client.1, connection));
+    let client_handle = task::spawn_local(handle_client(server.1, client.0));
+
+    tokio::join!(client_handle, server_handle);
+    Ok(())
+}
+
+async fn handle_client(mut server: WriteHalf, mut client: ReadHalf) -> anyhow::Result<()> {
     loop {
-        tokio::select! {
-            Ok(packet) = server.auto_read() => {
-                match packet {
-                    PacketType::Raw(packet) => client.conn.write_raw_packet(packet).await?,
-                    PacketType::PluginMessage(mut packet) => {
-                        if packet.channel == "minecraft:brand" {
-                            let mut brand = get_string(&mut packet.data, 32700)?;
-                            brand.push_str(" inside a bike");
-
-                            packet.data.clear();
-                            put_string(&mut packet.data, &brand);
-                        }
-                        client.conn.queue_packet(packet).await?;
-                    },
-                    PacketType::Disconnect(_packet) => {
-                        server.shutdown().await?;
-
-                        server = create_backend_connection(CONFIG.fallback_server, client.conn.protocol, &connection.username, connection.uuid).await?;
-                        let join: JoinGame = server.read_packet().await?;
-                        let respawn = Respawn::from_joingame(&join);
-                        client.conn.queue_packet(join).await?;
-                        client.conn.queue_packet(respawn).await?;
-
-                        for uuid in &connection.boss_bars {
-                            client.conn.queue_packet(BossBar {
-                                uuid: *uuid,
-                                action: BossBarAction::Remove
-                            }).await?;
-                        }
-                        connection.boss_bars.clear();
-
-                    },
-                    PacketType::BossBar(packet) => {
-                        match packet.action {
-                            BossBarAction::Add { .. } => connection.boss_bars.push(packet.uuid),
-                            BossBarAction::Remove => {
-                                if let Some(index) = connection.boss_bars.iter().position(|&i| i == packet.uuid) {
-                                    connection.boss_bars.swap_remove(index);
-                                }
-                            }
-                            _ => {}
-                        }
-                        client.conn.queue_packet(packet).await?;
-                    }
-                    _ => println!("server cos wysłał")
+        match client.auto_read().await? {
+            PacketType::Raw(packet) => {
+                server.write_raw_packet(packet).await?;
+                if client.is_buffer_empty() {
+                    server.flush().await?
                 }
             },
-            Ok(packet) = client.conn.auto_read() => {
-                match packet {
-                    PacketType::Raw(packet) => server.write_raw_packet(packet).await?,
-                    _ => println!("client cos wysłał")
-                }
-            },
-            else => return Ok(())
+            _ => println!("client cos wysłał")
         }
     }
+}
+
+async fn handle_server(mut server: ReadHalf, mut client: WriteHalf, mut connection: ConnectionInfo) -> anyhow::Result<()> {
+    loop {
+        match server.auto_read().await? {
+            PacketType::Raw(packet) => {
+                client.write_raw_packet(packet).await?;
+                if server.is_buffer_empty() {
+                    client.flush().await?
+                }
+            },
+            PacketType::PluginMessage(mut packet) => {
+                if packet.channel == "minecraft:brand" {
+                    let mut brand = get_string(&mut packet.data, 32700)?;
+                    brand.push_str(" inside a bike");
+    
+                    packet.data.clear();
+                    put_string(&mut packet.data, &brand);
+                }
+                client.queue_packet(packet).await?;
+            },
+            PacketType::Disconnect(_packet) => {
+                //server.shutdown().await?;
+    
+                //server = create_backend_connection(CONFIG.fallback_server, client.conn.protocol, &connection.username, connection.uuid).await?;
+                let join: JoinGame = server.read_packet().await?;
+                let respawn = Respawn::from_joingame(&join);
+                client.queue_packet(join).await?;
+                client.queue_packet(respawn).await?;
+    
+                for uuid in &connection.boss_bars {
+                    client.queue_packet(BossBar {
+                        uuid: *uuid,
+                        action: BossBarAction::Remove
+                    }).await?;
+                }
+                connection.boss_bars.clear();
+            },
+            PacketType::BossBar(packet) => {
+                match packet.action {
+                    BossBarAction::Add { .. } => connection.boss_bars.push(packet.uuid),
+                    BossBarAction::Remove => {
+                        if let Some(index) = connection.boss_bars.iter().position(|&i| i == packet.uuid) {
+                            connection.boss_bars.swap_remove(index);
+                        }
+                    }
+                    _ => {}
+                }
+                client.queue_packet(packet).await?;
+            }
+            _ => println!("server cos wysłał")
+        }
+    }
+
 }
 
 async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: &str, uuid: Uuid) -> Result<Connection, ProxyError> {
