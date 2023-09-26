@@ -159,18 +159,18 @@ pub struct WriteHalf {
 }
 
 impl WriteHalf {
-    pub async fn write_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
+    pub async fn queue_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
         self.framed_write.feed(packet).await
-    }
-
-    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
-        let raw_packet = self.serialize_packet(packet)?;
-        self.framed_write.send(raw_packet).await
     }
 
     pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
         let raw_packet = self.serialize_packet(packet)?;
         self.framed_write.feed(raw_packet).await
+    }
+
+    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
+        let raw_packet = self.serialize_packet(packet)?;
+        self.framed_write.send(raw_packet).await
     }
 
     fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> anyhow::Result<RawPacket> {

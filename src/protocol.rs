@@ -8,8 +8,9 @@ use uuid::Uuid;
 pub mod codec;
 pub mod packet;
 pub mod util;
-pub mod client;
+pub mod wrappers;
 pub mod nbt;
+pub mod buffer;
 
 pub enum State {
     Handshake,

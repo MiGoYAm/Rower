@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::net::SocketAddr;
 
 use base64::{engine::general_purpose, Engine};
 use image::io::Reader as ImageReader;
@@ -6,15 +7,15 @@ use image::{
     error::{LimitError, LimitErrorKind},
     image_dimensions, ImageError, ImageOutputFormat,
 };
-use log::warn;
 use once_cell::sync::Lazy;
 
+use crate::config::CONFIG;
 use crate::{
     component::Component,
     protocol::packet::status::{Motd, Players, Status, Version},
 };
 
-pub static STATES: Lazy<Vec<u8>> = Lazy::new(|| {
+pub static STATUS: Lazy<Vec<u8>> = Lazy::new(|| {
     let status = Status {
         version: Version {
             name: "1.19.4",
@@ -26,20 +27,10 @@ pub static STATES: Lazy<Vec<u8>> = Lazy::new(|| {
             sample: vec![],
         },
         description: Motd::Component(Component::text("azz")),
-        favicon: optional_favicon(),
+        favicon: read_favicon().ok(),
     };
     serde_json::to_vec(&status).unwrap()
 });
-
-fn optional_favicon() -> Option<String> {
-    match read_favicon() {
-        Ok(x) => Some(x),
-        Err(e) => {
-            warn!("{}", e);
-            None
-        }
-    }
-}
 
 fn read_favicon() -> anyhow::Result<String> {
     const PATH: &str = "server-icon.png";
@@ -55,5 +46,9 @@ fn read_favicon() -> anyhow::Result<String> {
     file_image.decode()?.write_to(&mut Cursor::new(&mut buffer), ImageOutputFormat::Png)?;
     let favicon = general_purpose::STANDARD_NO_PAD.encode(buffer);
 
-    Ok(format!("{}{}", "data:image/png;base64,", favicon))
+    Ok(format!("data:image/png;base64,{}", favicon))
+}
+
+pub fn get_initial_server() -> SocketAddr {
+    CONFIG.backend_server
 }

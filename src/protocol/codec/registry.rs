@@ -74,6 +74,7 @@ pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     registry.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
     registry.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
     registry.insert::<BossBar>(produce!(BossBar), Id::Clientbound(Mapping::Single(0x0b)));
+    //registry.insert::<ChatCommand>(produce!(ChatCommand), Id::Serverbound(Mapping::Single(0x04)));
     registry
 });
 
@@ -155,8 +156,8 @@ impl PacketRegistry {
 
     pub fn get_registry(&self, direction: &Direction) -> (&ProtocolRegistry, &ProtocolRegistry) {
         match direction {
-            Direction::Clientbound => (&self.clientbound, &self.serverbound),
-            Direction::Serverbound => (&self.serverbound, &self.clientbound),
+            Direction::Serverbound => (&self.clientbound, &self.serverbound),
+            Direction::Clientbound => (&self.serverbound, &self.clientbound),
         }
     }
 }

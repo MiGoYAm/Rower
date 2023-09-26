@@ -1,5 +1,4 @@
-use crate::protocol::util::put_byte_array;
-use crate::protocol::ProtocolVersion;
+use crate::protocol::{ProtocolVersion, buffer::BufMutExt};
 use crate::Component;
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Serialize, Serializer};
@@ -71,7 +70,7 @@ impl<'a> Packet for StatusResponse<'a> {
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        put_byte_array(buf, self.status)
+        buf.put_byte_array(self.status)
     }
 }
 

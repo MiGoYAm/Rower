@@ -1,10 +1,10 @@
-use anyhow::{bail, anyhow};
-use bytes::{BytesMut, BufMut, Buf};
+use anyhow::{bail, anyhow, Ok};
+use bytes::{BytesMut, BufMut, Buf, Bytes};
 use uuid::Uuid;
 
 use crate::{protocol::{
-    util::{put_bool, put_varint, get_bool, get_array, get_identifier, get_varint, put_string, put_component, get_component, get_uuid, put_uuid},
-    ProtocolVersion, nbt::Compound,
+    util::{get_array, put_array},
+    ProtocolVersion, nbt::Compound, buffer::{BufExt, BufMutExt},
 }, component::Component};
 
 use super::Packet;
@@ -17,13 +17,13 @@ pub struct PluginMessage {
 impl Packet for PluginMessage {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
-            channel: get_identifier(buf)?,
+            channel: buf.get_identifier()?,
             data: buf.split(),
         })
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        put_string(buf, &self.channel);
+        buf.put_string(&self.channel);
         buf.extend_from_slice(&self.data);
     }
 }
@@ -55,45 +55,45 @@ impl Packet for JoinGame {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
             entity_id: buf.get_i32(),
-            is_hardcore: get_bool(buf)?,
+            is_hardcore: buf.get_bool()?,
             gamemode: buf.get_u8(),
             previous_gamemode: buf.get_u8(),
-            dimensions_names: get_array(buf, get_identifier)?,
+            dimensions_names: get_array(buf, |b| b.get_identifier())?,
             registry: Compound::read(buf)?,
-            dimension_type: get_identifier(buf)?,
-            dimension_name: get_identifier(buf)?,
+            dimension_type: buf.get_identifier()?,
+            dimension_name: buf.get_identifier()?,
             hashed_seed: buf.get_i64(),
-            max_players: get_varint(buf)?,
-            view_distance: get_varint(buf)?,
-            simulation_distance: get_varint(buf)?,
-            reduced_debug_info: get_bool(buf)?,
-            respawn_screen: get_bool(buf)?,
-            is_debug: get_bool(buf)?,
-            is_flat: get_bool(buf)?,
+            max_players: buf.get_varint()?,
+            view_distance: buf.get_varint()?,
+            simulation_distance: buf.get_varint()?,
+            reduced_debug_info: buf.get_bool()?,
+            respawn_screen: buf.get_bool()?,
+            is_debug: buf.get_bool()?,
+            is_flat: buf.get_bool()?,
             last_death: Death::get(buf)?,
         })
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
         buf.put_i32(self.entity_id);
-        put_bool(buf, self.is_hardcore);
+        buf.put_bool(self.is_hardcore);
         buf.put_u8(self.gamemode);
         buf.put_u8(self.previous_gamemode);
-        put_varint(buf, self.dimensions_names.len() as u32);
+        buf.put_varint(self.dimensions_names.len() as i32);
         for dimension_name in self.dimensions_names {
-            put_string(buf, &dimension_name);
+            buf.put_string(&dimension_name);
         }
         self.registry.write(buf);
-        put_string(buf, &self.dimension_type);
-        put_string(buf, &self.dimension_name);
+        buf.put_string(&self.dimension_type);
+        buf.put_string( &self.dimension_name);
         buf.put_i64(self.hashed_seed);
-        put_varint(buf, self.max_players as u32);
-        put_varint(buf, self.view_distance as u32);
-        put_varint(buf, self.simulation_distance as u32);
-        put_bool(buf, self.reduced_debug_info);
-        put_bool(buf, self.respawn_screen);
-        put_bool(buf, self.is_debug);
-        put_bool(buf, self.is_flat);
+        buf.put_varint(self.max_players);
+        buf.put_varint(self.view_distance);
+        buf.put_varint(self.simulation_distance);
+        buf.put_bool(self.reduced_debug_info);
+        buf.put_bool(self.respawn_screen);
+        buf.put_bool(self.is_debug);
+        buf.put_bool(self.is_flat);
         put_death(buf, self.last_death);
     }
 }
@@ -106,9 +106,9 @@ pub struct Death {
 
 impl Death {
     pub fn get(buf: &mut BytesMut) -> anyhow::Result<Option<Self>> {
-        if get_bool(buf)? {
+        if buf.get_bool()? {
             Ok(Some(Death {
-                dimension_name: get_identifier(buf)?,
+                dimension_name: buf.get_identifier()?,
                 position: buf.get_i64(),
             }))
         } else {
@@ -119,11 +119,11 @@ impl Death {
 
 fn put_death(buf: &mut BytesMut, death: Option<Death>) {
     if let Some(death) = death {
-        put_bool(buf, true);
-        put_string(buf, &death.dimension_name);
+        buf.put_bool(true);
+        buf.put_string(&death.dimension_name);
         buf.put_i64(death.position);
     } else {
-        put_bool(buf, false);
+        buf.put_bool(false);
     }
 }
 
@@ -146,13 +146,13 @@ impl Packet for Respawn {
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        put_string(buf, &self.dimension_type);
-        put_string(buf, &self.dimension_name);
+        buf.put_string(&self.dimension_type);
+        buf.put_string(&self.dimension_name);
         buf.put_i64(self.hashed_seed);
         buf.put_u8(self.gamemode);
         buf.put_u8(self.previous_gamemode);
-        put_bool(buf, self.is_debug);
-        put_bool(buf, self.is_flat);
+        buf.put_bool(self.is_debug);
+        buf.put_bool(self.is_flat);
         buf.put_u8(self.data_kept);
         put_death(buf, self.last_death);
     }
@@ -247,10 +247,10 @@ impl TryFrom<u8> for BossBarDivision {
 impl Packet for BossBar {
     fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
         Ok(Self {
-            uuid: get_uuid(buf),
+            uuid: buf.get_uuid(),
             action: match buf.get_u8() {
                 0 => BossBarAction::Add {
-                    title: get_component(buf)?, 
+                    title: buf.get_component()?, 
                     health: buf.get_f32(), 
                     color: buf.get_u8().try_into()?,
                     division: buf.get_u8().try_into()?, 
@@ -258,7 +258,7 @@ impl Packet for BossBar {
                 },
                 1 => BossBarAction::Remove,
                 2 => BossBarAction::UpdateHealth(buf.get_f32()),
-                3 => BossBarAction::UpdateTitle(get_component(buf)?),
+                3 => BossBarAction::UpdateTitle(buf.get_component()?),
                 4 => BossBarAction::UpdateStyle(buf.get_u8().try_into()?, buf.get_u8().try_into()?),
                 5 => BossBarAction::UpdateFlags(buf.get_u8()),
                 value => bail!("bossbar decoding byte {}", value)
@@ -267,12 +267,12 @@ impl Packet for BossBar {
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        put_uuid(buf, self.uuid);
+        buf.put_uuid(self.uuid);
 
         match self.action {
             BossBarAction::Add { title, health, color, division, flags } => {
                 buf.put_u8(0);
-                put_component(buf, &title);
+                buf.put_component(&title).unwrap();
                 buf.put_f32(health);
                 buf.put_u8(color as u8);
                 buf.put_u8(division as u8);
@@ -285,7 +285,7 @@ impl Packet for BossBar {
             },
             BossBarAction::UpdateTitle(title) => {
                 buf.put_u8(3);
-                put_component(buf, &title);
+                buf.put_component(&title).unwrap();
             }
             BossBarAction::UpdateStyle(color, division) => {
                 buf.put_u8(4);
@@ -297,5 +297,45 @@ impl Packet for BossBar {
                 buf.put_u8(flags);
             },
         }
+    }
+}
+
+pub struct ChatCommand {
+    pub command: String,
+    pub timestamp: i64,
+    pub salt: i64,
+    pub arguments: Vec<(String, Bytes)>,
+    pub message_count: i32,
+    pub acknowledged: u8,
+}
+
+fn get_argument_signature(buf: &mut BytesMut) -> anyhow::Result<(String, Bytes)> {
+    Ok((buf.get_string(256)?, buf.get_byte_array()?))
+}
+
+fn put_argument_signature(buf: &mut BytesMut, arg: &(String, Bytes)) {
+    buf.put_string(&arg.0);
+    buf.put_byte_array(&arg.1);
+}
+
+impl Packet for ChatCommand {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+        Ok(Self { 
+            command: buf.get_string(256)?,
+            timestamp: buf.get_i64(),
+            salt: buf.get_i64(),
+            arguments: get_array(buf, get_argument_signature)?,
+            message_count: buf.get_varint()?,
+            acknowledged: buf.get_u8()
+        })
+    }
+
+    fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
+        buf.put_string(&self.command);
+        buf.put_i64(self.timestamp);
+        buf.put_i64(self.salt);
+        put_array(buf, self.arguments, put_argument_signature);
+        buf.put_varint(self.message_count);
+        buf.put_u8(self.acknowledged);
     }
 }

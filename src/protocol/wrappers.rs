@@ -11,7 +11,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn from_conn(conn: Connection) -> Self {
+    pub fn new(conn: Connection) -> Self {
         Self { conn }
     }
 
@@ -21,9 +21,26 @@ impl Client {
     }
 }
 
+pub struct Server {
+    pub address: SocketAddr,
+    pub conn: Connection,
+}
+
+impl Server {
+    pub fn new(conn: Connection, address: SocketAddr) -> Self {
+        Self { address, conn }
+    }
+}
+
 pub struct ConnectionInfo {
     pub username: String,
     pub uuid: Uuid,
     pub server: SocketAddr,
     pub boss_bars: Vec<Uuid>
+}
+
+impl ConnectionInfo {
+    pub fn new(username: String, uuid: Uuid, server: SocketAddr) -> Self {
+        Self { username, uuid, server, boss_bars: Vec::new() }
+    }
 }

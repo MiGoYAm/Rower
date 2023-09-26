@@ -2,7 +2,7 @@ use bytes::BytesMut;
 
 use self::{
     login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression, LoginPluginRequest, LoginPluginResponse},
-    play::{PluginMessage, BossBar},
+    play::{PluginMessage, BossBar, ChatCommand},
 };
 
 use super::ProtocolVersion;
@@ -53,5 +53,6 @@ pub enum PacketType {
     Disconnect(Disconnect),
 
     PluginMessage(PluginMessage),
-    BossBar(BossBar)
+    BossBar(BossBar),
+    ChatCommand(ChatCommand),
 }

@@ -3,8 +3,7 @@ use std::cell::RefCell;
 use bytes::BytesMut;
 use libdeflater::Decompressor;
 use tokio_util::codec::Decoder;
-
-use crate::protocol::util::get_varint;
+use crate::protocol::buffer::BufExt;
 
 use super::util::read_varint;
 
@@ -62,7 +61,7 @@ impl Decoder for MinecraftDecoder {
         let mut data = src.split_to(length);
 
         if let Some(buf) = &mut self.decompression {
-            let data_length = get_varint(&mut data)?;
+            let data_length = data.get_varint()?;
 
             if data_length == 0 {
                 return Ok(Some(data));

@@ -1,27 +1,25 @@
-
 use std::net::SocketAddr;
 
 use anyhow::anyhow;
 use error::ProxyError;
-use handlers::STATES;
+use handlers::{STATUS, get_initial_server};
 use log::{error, info};
-use protocol::client::{Client, ConnectionInfo};
+use protocol::buffer::{BufExt, BufMutExt};
+use protocol::wrappers::{Client, ConnectionInfo, Server};
 use protocol::codec::connection::{Connection, ReadHalf, WriteHalf};
 use protocol::packet::handshake::{Handshake, NextState};
 use protocol::packet::login::{Disconnect, LoginStart, LoginSuccess, SetCompression};
 use protocol::packet::PacketType;
-use protocol::packet::play::{JoinGame, Respawn};
+use protocol::packet::play::{JoinGame, Respawn, BossBar};
 use protocol::{Direction, State};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task;
-use uuid::Uuid;
 
 use crate::component::Component;
 
 use crate::config::CONFIG;
-use crate::protocol::packet::play::{BossBarAction, BossBar};
+use crate::protocol::packet::play::BossBarAction;
 use crate::protocol::packet::status::{Ping, StatusRequest, StatusResponse};
-use crate::protocol::util::{get_string, put_string};
 use crate::protocol::{generate_offline_uuid, ProtocolVersion};
 
 mod component;
@@ -52,7 +50,7 @@ async fn listen(listener: TcpListener) -> anyhow::Result<()> {
 }
 
 async fn handle(stream: TcpStream) {
-    if let Err(err) = handle_handshake(Connection::new(stream, Direction::Serverbound)).await {
+    if let Err(err) = handle_handshake(Connection::new(stream, Direction::Clientbound)).await {
         error!("{}", err);
     }
 }
@@ -73,7 +71,7 @@ async fn handle_status(mut client: Connection) -> anyhow::Result<()> {
 
     client.read_packet::<StatusRequest>().await?;
 
-    client.write_packet(StatusResponse { status: &STATES }).await?;
+    client.write_packet(StatusResponse { status: &STATUS }).await?;
 
     let ping: Ping = client.read_packet().await?;
     client.write_packet(ping).await
@@ -83,7 +81,7 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
     client.change_state(State::Login);
     let LoginStart { username, uuid } = client.read_packet().await?;
 
-    let mut client = Client::from_conn(client);
+    let mut client = Client::new(client);
 
     if client.conn.protocol < ProtocolVersion::V1_19_2 {
         return client.disconnect(Component::text("We support versions above 1.19.1")).await;
@@ -97,14 +95,11 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
         client.conn.enable_compression(threshold);
     }
 
-    let conn_info = ConnectionInfo {
-        uuid: if let Some(uuid) = uuid { uuid } else { generate_offline_uuid(&username) },
-        username,
-        server: CONFIG.backend_server,
-        boss_bars: Vec::new()
-    };
+    let uuid = uuid.unwrap_or_else(|| generate_offline_uuid(&username));
+    let initial_server = get_initial_server();
+    let conn_info = ConnectionInfo::new(username, uuid, initial_server);
 
-    let server = match create_backend_connection(CONFIG.backend_server, client.conn.protocol, &conn_info.username, conn_info.uuid).await {
+    let server = match create_backend_connection(conn_info.server, client.conn.protocol, &conn_info).await {
         Ok(server) => server,
         Err(ProxyError::Disconnected(reason)) => return client.disconnect(reason).await,
         Err(ProxyError::Other(error)) => return Err(error)
@@ -119,32 +114,32 @@ async fn handle_login(mut client: Connection) -> anyhow::Result<()> {
     handle_play(client, server, conn_info).await
 }
 
-async fn handle_play(mut client: Client, mut server: Connection, connection: ConnectionInfo) -> anyhow::Result<()> {
+async fn handle_play(mut client: Client, server: Server, connection: ConnectionInfo) -> anyhow::Result<()> {
     client.conn.change_state(State::Play);
 
-    let join: JoinGame = server.read_packet().await?;
-    client.conn.queue_packet(join).await?;
+    let (client_read, client_write) = client.conn.split();
+    let (server_read, server_write) = server.conn.split();
 
-    let client = client.conn.split();
-    let server = server.split();
+    let server_handle = task::spawn_local(handle_server(server_read, client_write, connection));
+    let client_handle = task::spawn_local(handle_client(server_write, client_read));
 
-    let server_handle = task::spawn_local(handle_server(server.0, client.1, connection));
-    let client_handle = task::spawn_local(handle_client(server.1, client.0));
-
-    tokio::join!(client_handle, server_handle);
-    Ok(())
+    match tokio::try_join!(server_handle, client_handle) {
+        Ok((Err(err), _)) | Ok((_, Err(err)))=> Err(err),
+        Err(err) => Err(err.into()),
+        _ => Ok(())
+    }
 }
 
 async fn handle_client(mut server: WriteHalf, mut client: ReadHalf) -> anyhow::Result<()> {
     loop {
         match client.auto_read().await? {
             PacketType::Raw(packet) => {
-                server.write_raw_packet(packet).await?;
+                server.queue_raw_packet(packet).await?;
                 if client.is_buffer_empty() {
                     server.flush().await?
                 }
             },
-            _ => println!("client cos wysłał")
+            _ => unreachable!("client cos wysłał")
         }
     }
 }
@@ -152,38 +147,19 @@ async fn handle_client(mut server: WriteHalf, mut client: ReadHalf) -> anyhow::R
 async fn handle_server(mut server: ReadHalf, mut client: WriteHalf, mut connection: ConnectionInfo) -> anyhow::Result<()> {
     loop {
         match server.auto_read().await? {
-            PacketType::Raw(packet) => {
-                client.write_raw_packet(packet).await?;
-                if server.is_buffer_empty() {
-                    client.flush().await?
-                }
-            },
             PacketType::PluginMessage(mut packet) => {
                 if packet.channel == "minecraft:brand" {
-                    let mut brand = get_string(&mut packet.data, 32700)?;
+                    let mut brand = packet.data.get_string(32700)?;
                     brand.push_str(" inside a bike");
     
                     packet.data.clear();
-                    put_string(&mut packet.data, &brand);
+                    packet.data.put_string(&brand);
                 }
                 client.queue_packet(packet).await?;
             },
-            PacketType::Disconnect(_packet) => {
-                //server.shutdown().await?;
-    
-                //server = create_backend_connection(CONFIG.fallback_server, client.conn.protocol, &connection.username, connection.uuid).await?;
-                let join: JoinGame = server.read_packet().await?;
-                let respawn = Respawn::from_joingame(&join);
-                client.queue_packet(join).await?;
-                client.queue_packet(respawn).await?;
-    
-                for uuid in &connection.boss_bars {
-                    client.queue_packet(BossBar {
-                        uuid: *uuid,
-                        action: BossBarAction::Remove
-                    }).await?;
-                }
-                connection.boss_bars.clear();
+            PacketType::Disconnect(packet) => {
+                client.write_packet(packet).await?;
+                return client.shutdown().await;
             },
             PacketType::BossBar(packet) => {
                 match packet.action {
@@ -196,27 +172,33 @@ async fn handle_server(mut server: ReadHalf, mut client: WriteHalf, mut connecti
                     _ => {}
                 }
                 client.queue_packet(packet).await?;
-            }
-            _ => println!("server cos wysłał")
+            },
+            PacketType::Raw(packet) => {
+                client.queue_raw_packet(packet).await?;
+                if server.is_buffer_empty() {
+                    client.flush().await?;
+                }
+            },
+            _ => unreachable!("server cos wysłał")
         }
     }
 
 }
 
-async fn create_backend_connection(backend_server: SocketAddr, version: ProtocolVersion, username: &str, uuid: Uuid) -> Result<Connection, ProxyError> {
-    let mut server = Connection::connect(backend_server, version, Direction::Clientbound).await?;
+async fn create_backend_connection(server_address: SocketAddr, version: ProtocolVersion, connection: &ConnectionInfo) -> Result<Server, ProxyError> {
+    let mut server = Connection::connect(server_address, version, Direction::Serverbound).await?;
 
     server.queue_packet(Handshake {
         protocol: version.into(),
-        server_address: backend_server.ip().to_string(),
-        port: backend_server.port(),
+        server_address: server_address.ip().to_string(),
+        port: server_address.port(),
         state: NextState::Login,
     }).await?;
 
     server.change_state(State::Login);
     server.write_packet(LoginStart { 
-        username: username.to_owned(), 
-        uuid: Some(uuid)
+        username: connection.username.to_owned(), 
+        uuid: Some(connection.uuid)
     }).await?;
 
     loop {
@@ -228,7 +210,7 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
             }
             PacketType::LoginSuccess(_) => {
                 server.change_state(State::Play);
-                Ok(server)
+                Ok(Server::new(server, server_address))
             }
             PacketType::LoginPluginRequest(_) => unimplemented!("login plugin request"),
             PacketType::Disconnect(Disconnect { reason }) => {
@@ -238,4 +220,21 @@ async fn create_backend_connection(backend_server: SocketAddr, version: Protocol
             _ => Err(anyhow!("unknown packet").into()),
         };
     }
+}
+
+async fn switch_server(client: &mut WriteHalf, backend_server: SocketAddr, connection: &mut ConnectionInfo) -> anyhow::Result<Server> {
+    let mut server = create_backend_connection(backend_server, client.protocol, connection).await?;
+    let join: JoinGame = server.conn.read_packet().await?;
+    let respawn = Respawn::from_joingame(&join);
+    client.queue_packet(join).await?;
+    client.queue_packet(respawn).await?;
+    
+    for uuid in &connection.boss_bars {
+        client.queue_packet(BossBar {
+            uuid: *uuid,
+            action: BossBarAction::Remove
+        }).await?;
+    }
+    connection.boss_bars.clear();
+    Ok(server)
 }
