@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-
 use anyhow::{ensure, Result};
 use bytes::{Buf, BufMut};
 
+type CompoundType = Vec<(String, Tag)>;
+
 #[derive(Debug)]
-pub struct Compound(String, HashMap<String, Tag>);
+pub struct Compound(String, CompoundType);
 
 impl Compound {
     pub fn read(buf: &mut impl Buf) -> Result<Self> {
@@ -34,7 +34,7 @@ pub enum Tag {
     ByteArray(Vec<u8>), // todo vec<i8>
     String(String),
     List(Vec<Tag>),
-    Compound(HashMap<String, Tag>),
+    Compound(CompoundType),
     IntArray(Vec<i32>),
     LongArray(Vec<i64>),
 }
@@ -135,18 +135,18 @@ impl Tag {
     }
 }
 
-fn read_compund(buf: &mut impl Buf) -> Result<HashMap<String, Tag>> {
-    let mut map = HashMap::new();
+fn read_compund(buf: &mut impl Buf) -> Result<CompoundType> {
+    let mut vec = Vec::new();
 
     while let id @ 1.. = buf.get_u8()  {
-        let tag_name = read_string(buf)?;
+        let name = read_string(buf)?;
         let tag = Tag::read(id, buf)?;
-        map.insert(tag_name, tag);
+        vec.push((name, tag));
     }
-    Ok(map)
+    Ok(vec)
 }
 
-fn write_compund(map: &HashMap<String, Tag>, buf: &mut impl BufMut) {
+fn write_compund(map: &CompoundType, buf: &mut impl BufMut) {
     for (name, tag) in map.iter() {
         buf.put_u8(tag.id());
         write_string(name, buf);
