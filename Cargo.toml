@@ -28,9 +28,9 @@ base64 = "0.21.5"
 image = "0.24.7"
 strum = { version = "0.25.0", features = ["derive"] }
 md-5 = "0.10.6"
-envy = "0.4.2"
 anyhow = "1.0"
 thiserror = "1.0"
+toml = "0.8.8"
 #openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]

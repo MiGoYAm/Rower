@@ -94,7 +94,7 @@ async fn handle_login(mut client: Connection) -> Result<()> {
 
     if CONFIG.online {}
 
-    let threshold = CONFIG.threshold;
+    let threshold = CONFIG.compression_threshold;
     if threshold > -1 {
         client.conn.queue_packet(SetCompression { threshold }).await?;
         client.conn.enable_compression(threshold);

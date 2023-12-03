@@ -1,40 +1,49 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, path::Path, fs};
 
 use once_cell::sync::Lazy;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
-pub static CONFIG: Lazy<Config> = Lazy::new(|| envy::prefixed("ROWER_").from_env().unwrap());
+pub static CONFIG: Lazy<Config> = Lazy::new(|| load_config().unwrap());
 
-#[derive(Deserialize, Debug)]
+pub fn load_config() -> Result<Config> {
+    let path = Path::new("config.toml");
+
+    if path.exists() {
+        let content = fs::read_to_string(path)?;
+        let config = toml::from_str(&content)?;
+
+        return Ok(config);
+    }
+
+    let config = Config::default();
+    let toml = toml::to_string(&config).unwrap();
+
+    fs::write(path, toml)?;
+    Ok(config)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct Config {
-    #[serde(default = "default_address")]
+    #[serde(rename = "bind")]
     pub address: SocketAddr,
-    #[serde(default = "default_threshold")]
-    pub threshold: i32,
-    #[serde(default = "default_online_mode")]
+    pub compression_threshold: i32,
+    //pub compression_level: CompressionLvl,
     pub online: bool,
-    #[serde(default = "default_backend_server")]
     pub backend_server: SocketAddr,
-    #[serde(default = "default_fallback_server")]
     pub fallback_server: SocketAddr
 }
 
-fn default_address() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 25565)
-}
-
-fn default_threshold() -> i32 {
-    256
-}
-
-fn default_online_mode() -> bool {
-    true
-}
-
-fn default_backend_server() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25566)
-}
-
-fn default_fallback_server() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25567)
+impl Default for Config {
+    fn default() -> Self {
+        Self { 
+            address: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 25565),
+            compression_threshold: 256,
+            //compression_level: CompressionLvl::default(),
+            online: true,
+            backend_server: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25566),
+            fallback_server: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25567)
+        }
+    }
 }

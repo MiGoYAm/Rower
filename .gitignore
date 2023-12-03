@@ -3,3 +3,4 @@ target/
 .idea/
 .vscode/
 server-icon.png
+config.toml
