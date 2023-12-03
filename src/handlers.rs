@@ -1,6 +1,7 @@
 use std::io::Cursor;
 use std::net::SocketAddr;
 
+use anyhow::Result;
 use base64::{engine::general_purpose, Engine};
 use image::io::Reader as ImageReader;
 use image::{
@@ -32,7 +33,7 @@ pub static STATUS: Lazy<Vec<u8>> = Lazy::new(|| {
     serde_json::to_vec(&status).unwrap()
 });
 
-fn read_favicon() -> anyhow::Result<String> {
+fn read_favicon() -> Result<String> {
     const PATH: &str = "server-icon.png";
 
     let dimensions = image_dimensions(PATH)?;

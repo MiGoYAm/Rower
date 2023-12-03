@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use criterion::{criterion_group, criterion_main, Criterion, black_box};
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 
 pub type PacketProducer = fn();
 
@@ -20,7 +20,7 @@ impl ProtocolRegistryH {
         self.id_to_packet.insert(id, producer);
     }
     #[inline]
-    pub fn get_packet(&self, id: u8) -> anyhow::Result<&PacketProducer> {
+    pub fn get_packet(&self, id: u8) -> Result<&PacketProducer> {
         self.id_to_packet.get(&id).ok_or(anyhow!("Packet with id {:02X?} does not exist in this state or version", id))
     }
 }
@@ -40,7 +40,7 @@ impl ProtocolRegistry {
         self.id_to_packeta[id as usize] = Some(producer);
     }
     #[inline]
-    pub fn get_packet(&self, id: u8) -> anyhow::Result<&PacketProducer> {
+    pub fn get_packet(&self, id: u8) -> Result<&PacketProducer> {
         match self.id_to_packeta.get(id as usize) {
             Some(Some(producer)) => Ok(producer),
             _ => Err(anyhow!("Packet with id {:02X?} does not exist in this state or version", id))

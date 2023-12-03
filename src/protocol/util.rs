@@ -1,17 +1,19 @@
-use bytes::BytesMut;
 use super::{packet::login::Property, buffer::{BufMutExt, BufExt}};
+use anyhow::Result;
+use bytes::{Buf, BufMut};
 
-pub fn get_property(buf: &mut BytesMut) -> anyhow::Result<Property> {
+pub fn get_property(buf: &mut impl Buf) -> Result<Property> {
     Ok(Property {
         name: buf.get_string(32767)?,
         value: buf.get_string(32767)?,
-        signature: if buf.get_bool()? { Some(buf.get_string(32767)?) } else { None },
+        signature: buf.get_option(|b| b.get_string(32767))?,
     })
 }
 
-pub fn put_property(buf: &mut BytesMut, property: &Property) {
+pub fn put_property(buf: &mut impl BufMut, property: &Property) {
     buf.put_string(&property.name);
     buf.put_string(&property.value);
+    buf.put_option(&property.signature, |b, s| b.put_string(s));
     if let Some(signature) = &property.signature  {
         buf.put_bool(true);
         buf.put_string(signature);
@@ -20,7 +22,11 @@ pub fn put_property(buf: &mut BytesMut, property: &Property) {
     }
 }
 
-pub fn get_array<T>(buf: &mut BytesMut, fun: fn(&mut BytesMut) -> anyhow::Result<T>) -> anyhow::Result<Vec<T>> {
+pub fn get_array<T, B, F>(buf: &mut B, fun: F) -> Result<Vec<T>> 
+where 
+    B: Buf,
+    F: Fn(&mut B) -> Result<T>
+{
     let length = buf.get_varint()? as usize;
     let mut array = Vec::with_capacity(length);
 
@@ -31,7 +37,11 @@ pub fn get_array<T>(buf: &mut BytesMut, fun: fn(&mut BytesMut) -> anyhow::Result
     Ok(array)
 }
 
-pub fn put_array<T>(buf: &mut BytesMut, vec: Vec<T>, fun: fn(&mut BytesMut, &T)) {
+pub fn put_array<T, B, F>(buf: &mut B, vec: Vec<T>, fun: F) 
+where 
+    B: BufMut,
+    F: Fn(&mut B, &T)
+{
     buf.put_varint(vec.len() as i32);
     for item in &vec {
         fun(buf, item)

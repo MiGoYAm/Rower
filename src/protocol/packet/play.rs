@@ -1,4 +1,4 @@
-use anyhow::{bail, anyhow, Ok};
+use anyhow::{bail, anyhow, Result};
 use bytes::{BytesMut, BufMut, Buf, Bytes};
 use uuid::Uuid;
 
@@ -15,7 +15,7 @@ pub struct PluginMessage {
 }
 
 impl Packet for PluginMessage {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             channel: buf.get_identifier()?,
             data: buf.split(),
@@ -52,7 +52,7 @@ pub struct JoinGame {
 }
 
 impl Packet for JoinGame {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             entity_id: buf.get_i32(),
             is_hardcore: buf.get_bool()?,
@@ -105,15 +105,15 @@ pub struct Death {
 }
 
 impl Death {
-    pub fn get(buf: &mut BytesMut) -> anyhow::Result<Option<Self>> {
-        if buf.get_bool()? {
-            Ok(Some(Death {
-                dimension_name: buf.get_identifier()?,
-                position: buf.get_i64(),
-            }))
-        } else {
-            Ok(None)
-        }
+    pub fn get(buf: &mut BytesMut) -> Result<Option<Self>> {
+        buf.get_option(Self::get1)
+    }
+
+    pub fn get1(buf: &mut BytesMut) -> Result<Self> {
+        Ok(Death {
+            dimension_name: buf.get_identifier()?,
+            position: buf.get_i64()
+        })
     }
 }
 
@@ -141,7 +141,7 @@ pub struct Respawn {
 }
 
 impl Packet for Respawn {
-    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         unreachable!()
     }
 
@@ -245,7 +245,7 @@ impl TryFrom<u8> for BossBarDivision {
 }
 
 impl Packet for BossBar {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             uuid: buf.get_uuid(),
             action: match buf.get_u8() {
@@ -306,10 +306,10 @@ pub struct ChatCommand {
     pub salt: i64,
     pub arguments: Vec<(String, Bytes)>,
     pub message_count: i32,
-    pub acknowledged: u8,
+    pub acknowledged: BytesMut,
 }
 
-fn get_argument_signature(buf: &mut BytesMut) -> anyhow::Result<(String, Bytes)> {
+fn get_argument_signature(buf: &mut BytesMut) -> Result<(String, Bytes)> {
     Ok((buf.get_string(256)?, buf.get_byte_array()?))
 }
 
@@ -319,14 +319,14 @@ fn put_argument_signature(buf: &mut BytesMut, arg: &(String, Bytes)) {
 }
 
 impl Packet for ChatCommand {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self { 
             command: buf.get_string(256)?,
             timestamp: buf.get_i64(),
             salt: buf.get_i64(),
             arguments: get_array(buf, get_argument_signature)?,
             message_count: buf.get_varint()?,
-            acknowledged: buf.get_u8()
+            acknowledged: buf.split(),
         })
     }
 
@@ -336,6 +336,7 @@ impl Packet for ChatCommand {
         buf.put_i64(self.salt);
         put_array(buf, self.arguments, put_argument_signature);
         buf.put_varint(self.message_count);
-        buf.put_u8(self.acknowledged);
+        buf.put_slice(&self.acknowledged);
+        //buf.put_bitset(self.acknowledged);
     }
 }

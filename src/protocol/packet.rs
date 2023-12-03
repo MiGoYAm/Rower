@@ -1,4 +1,5 @@
 use bytes::BytesMut;
+use anyhow::Result;
 
 use self::{
     login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression, LoginPluginRequest, LoginPluginResponse},
@@ -13,7 +14,7 @@ pub mod play;
 pub mod status;
 
 pub trait Packet: Sized {
-    fn from_bytes(buf: &mut BytesMut, version: ProtocolVersion) -> anyhow::Result<Self>;
+    fn from_bytes(buf: &mut BytesMut, version: ProtocolVersion) -> Result<Self>;
 
     fn put_buf(self, buf: &mut BytesMut, version: ProtocolVersion);
 }

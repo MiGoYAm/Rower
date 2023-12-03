@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use anyhow::ensure;
-use bytes::{BytesMut, Buf, BufMut};
+use anyhow::{ensure, Result};
+use bytes::{Buf, BufMut};
 
 #[derive(Debug)]
 pub struct Compound(String, HashMap<String, Tag>);
 
 impl Compound {
-    pub fn read(buf: &mut BytesMut) -> anyhow::Result<Self> {
+    pub fn read(buf: &mut impl Buf) -> Result<Self> {
         let id = buf.get_u8();
         ensure!(id == 0x0a, "nbt this isnt a compund. id: {}", id);
         let name = read_string(buf)?;
@@ -15,7 +15,7 @@ impl Compound {
         Ok(Compound(name, read_compund(buf)?))
     }
 
-    pub fn write(self, buf: &mut BytesMut) {
+    pub fn write(self, buf: &mut impl BufMut) {
         buf.put_u8(0xa);
         write_string(&self.0, buf);
         write_compund(&self.1, buf);
@@ -40,7 +40,7 @@ pub enum Tag {
 }
 
 impl Tag {
-    pub fn read(id: u8, buf: &mut BytesMut) -> anyhow::Result<Self> {
+    pub fn read(id: u8, buf: &mut impl Buf) -> Result<Self> {
         Ok(match id {
             1 => Tag::Byte(buf.get_i8()),
             2 => Tag::Short(buf.get_i16()),
@@ -84,7 +84,7 @@ impl Tag {
         })
     }
 
-    pub fn write(&self, buf: &mut BytesMut) {
+    pub fn write(&self, buf: &mut impl BufMut) {
         match self {
             Tag::Byte(v) => buf.put_i8(*v),
             Tag::Short(v) => buf.put_i16(*v),
@@ -94,7 +94,7 @@ impl Tag {
             Tag::Double(v) => buf.put_f64(*v),
             Tag::ByteArray(v) => {
                 buf.put_i32(v.len() as i32);
-                buf.extend_from_slice(v);
+                buf.put_slice(v);
             }
             Tag::String(v) => write_string(v, buf),
             Tag::List(v) => {
@@ -135,7 +135,7 @@ impl Tag {
     }
 }
 
-fn read_compund(buf: &mut BytesMut) -> anyhow::Result<HashMap<String, Tag>> {
+fn read_compund(buf: &mut impl Buf) -> Result<HashMap<String, Tag>> {
     let mut map = HashMap::new();
 
     while let id @ 1.. = buf.get_u8()  {
@@ -146,7 +146,7 @@ fn read_compund(buf: &mut BytesMut) -> anyhow::Result<HashMap<String, Tag>> {
     Ok(map)
 }
 
-fn write_compund(map: &HashMap<String, Tag>, buf: &mut BytesMut) {
+fn write_compund(map: &HashMap<String, Tag>, buf: &mut impl BufMut) {
     for (name, tag) in map.iter() {
         buf.put_u8(tag.id());
         write_string(name, buf);
@@ -155,7 +155,7 @@ fn write_compund(map: &HashMap<String, Tag>, buf: &mut BytesMut) {
     buf.put_u8(0x00);
 }
 
-fn read_string(buf: &mut BytesMut) -> anyhow::Result<String> {
+fn read_string(buf: &mut impl Buf) -> Result<String> {
     let name_length = buf.get_u16() as usize;
     let mut vec = vec![0; name_length];
     buf.copy_to_slice(&mut vec);
@@ -163,7 +163,7 @@ fn read_string(buf: &mut BytesMut) -> anyhow::Result<String> {
     Ok(String::from_utf8(vec)?)
 }
 
-fn write_string(str: &String, buf: &mut BytesMut) {
+fn write_string(str: &String, buf: &mut impl BufMut) {
     buf.put_u16(str.len() as u16);
-    buf.extend_from_slice(str.as_bytes());
+    buf.put_slice(str.as_bytes());
 }

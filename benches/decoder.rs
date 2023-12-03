@@ -3,12 +3,12 @@ use criterion::{criterion_group, criterion_main, Criterion};
 
 use libdeflater::Decompressor;
 use tokio_util::codec::Decoder;
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 
 pub const MAX_HEADER_LENGTH: i32 = 3;
 
 #[inline(always)]
-pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> anyhow::Result<DecodeState> {
+pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> Result<DecodeState> {
     let max_read = i32::min(MAX_HEADER_LENGTH, src.len() as i32);
 
     for i in readed_bytes..max_read {
@@ -27,7 +27,7 @@ pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> any
 }
 
 #[inline(always)]
-pub fn get_varint(buf: &mut impl Buf) -> anyhow::Result<i32> {
+pub fn get_varint(buf: &mut impl Buf) -> Result<i32> {
     let mut i = 0;
     let max_read = 5.min(buf.remaining());
 
@@ -79,7 +79,7 @@ impl Decoder for MinecraftDecoder {
     type Error = anyhow::Error;
 
     #[inline(always)]
-    fn decode(&mut self, src: &mut BytesMut) -> anyhow::Result<Option<Self::Item>> {
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
         let length = match self.state {
             DecodeState::Length(value, readed_bytes) => {
                 self.state = read_varint(value, readed_bytes, src)?;

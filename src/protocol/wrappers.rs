@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use anyhow::Result;
 use uuid::Uuid;
 
 use crate::component::Component;
@@ -15,7 +16,7 @@ impl Client {
         Self { conn }
     }
 
-    pub async fn disconnect(mut self, reason: Component) -> anyhow::Result<()> {
+    pub async fn disconnect(mut self, reason: Component) -> Result<()> {
         self.conn.write_packet(Disconnect { reason }).await?;
         self.conn.shutdown().await
     }
@@ -35,12 +36,11 @@ impl Server {
 pub struct ConnectionInfo {
     pub username: String,
     pub uuid: Uuid,
-    pub server: SocketAddr,
     pub boss_bars: Vec<Uuid>
 }
 
 impl ConnectionInfo {
-    pub fn new(username: String, uuid: Uuid, server: SocketAddr) -> Self {
-        Self { username, uuid, server, boss_bars: Vec::new() }
+    pub fn new(username: String, uuid: Uuid) -> Self {
+        Self { username, uuid, boss_bars: Vec::new() }
     }
 }

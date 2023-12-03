@@ -2,13 +2,13 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use super::decoder::DecodeState;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 
 pub const MAX_PACKET_SIZE: usize = 2097151;
 pub const MAX_HEADER_LENGTH: i32 = 3;
 
 #[inline(always)]
-pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> anyhow::Result<DecodeState> {
+pub fn read_varint(mut value: i32, readed_bytes: i32, src: &mut BytesMut) -> Result<DecodeState> {
     let max_read = i32::min(MAX_HEADER_LENGTH, src.len() as i32);
 
     for i in readed_bytes..max_read {

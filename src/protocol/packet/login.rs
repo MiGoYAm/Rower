@@ -2,6 +2,7 @@ use crate::protocol::buffer::{BufExt, BufMutExt};
 use crate::protocol::util::{get_array, get_property, put_array, put_property};
 use crate::protocol::ProtocolVersion;
 use crate::Component;
+use anyhow::Result;
 use bytes::{BytesMut, Bytes};
 use uuid::Uuid;
 
@@ -13,10 +14,10 @@ pub struct LoginStart {
 }
 
 impl Packet for LoginStart {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             username: buf.get_string(16)?,
-            uuid: buf.get_bool()?.then(|| buf.get_uuid()),
+            uuid: buf.get_option(|b| Ok(b.get_uuid()))?,
         })
     }
 
@@ -45,7 +46,7 @@ pub struct LoginSuccess {
 }
 
 impl Packet for LoginSuccess {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             uuid: buf.get_uuid(),
             username: buf.get_string(16)?,
@@ -65,7 +66,7 @@ pub struct Disconnect {
 }
 
 impl Packet for Disconnect {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             reason: buf.get_component()?,
         })
@@ -81,7 +82,7 @@ pub struct SetCompression {
 }
 
 impl Packet for SetCompression {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self { threshold: buf.get_varint()? })
     }
 
@@ -97,7 +98,7 @@ pub struct EncryptionRequest {
 }
 
 impl Packet for EncryptionRequest {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             server_id: buf.get_string(20)?,
             public_key: buf.get_byte_array()?,
@@ -118,7 +119,7 @@ pub struct EncryptionResponse {
 }
 
 impl Packet for EncryptionResponse {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             shared_secret: buf.get_byte_array()?,
             verify_token: buf.get_byte_array()?,
@@ -138,7 +139,7 @@ pub struct LoginPluginRequest {
 }
 
 impl Packet for LoginPluginRequest {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             message_id: buf.get_varint()?,
             channel: buf.get_identifier()?,
@@ -160,7 +161,7 @@ pub struct LoginPluginResponse {
 }
 
 impl Packet for LoginPluginResponse {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         let message_id = buf.get_varint()?;
         let successful = buf.get_bool()?;
         Ok(Self {

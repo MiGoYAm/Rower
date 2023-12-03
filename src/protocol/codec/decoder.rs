@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 
+use anyhow::Result;
 use bytes::BytesMut;
 use libdeflater::Decompressor;
 use tokio_util::codec::Decoder;
@@ -38,7 +39,7 @@ impl Decoder for MinecraftDecoder {
     type Item = BytesMut;
     type Error = anyhow::Error;
 
-    fn decode(&mut self, src: &mut BytesMut) -> anyhow::Result<Option<Self::Item>> {
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
         let length = match self.state {
             DecodeState::Length(value, readed_bytes) => {
                 self.state = read_varint(value, readed_bytes, src)?;
@@ -74,8 +75,8 @@ impl Decoder for MinecraftDecoder {
             }
             let mut buf = buf.split_to(data_length);
 
-            let _result = DECOMPRESSOR.with(|d| {
-                d.borrow_mut().zlib_decompress(&data, &mut buf)
+            let _result = DECOMPRESSOR.with_borrow_mut(|d| {
+                d.zlib_decompress(&data, &mut buf)
             })?;
             
             return Ok(Some(buf));

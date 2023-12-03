@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use md5::{Digest, Md5};
 use strum::EnumIter;
 use uuid::Uuid;
@@ -110,7 +110,7 @@ pub enum ProtocolVersion {
 impl std::convert::TryFrom<i32> for ProtocolVersion {
     type Error = anyhow::Error;
 
-    fn try_from(value: i32) -> anyhow::Result<Self> {
+    fn try_from(value: i32) -> Result<Self> {
         match value {
             762 => Ok(ProtocolVersion::V1_19_4),
             761 => Ok(ProtocolVersion::V1_19_3),

@@ -1,11 +1,11 @@
-use anyhow::{anyhow, ensure};
+use anyhow::{anyhow, ensure, Result, Ok};
 use bytes::{Buf, Bytes, BufMut};
 use uuid::Uuid;
 
 use crate::component::Component;
 
 pub trait BufExt: Buf {
-    fn get_varint(&mut self) -> anyhow::Result<i32> {
+    fn get_varint(&mut self) -> Result<i32> {
         let mut i = 0;
         let max_read = 5.min(self.remaining());
 
@@ -21,7 +21,7 @@ pub trait BufExt: Buf {
         Err(anyhow!("Varint too long"))
     }
 
-    fn get_bool(&mut self) -> anyhow::Result<bool> {
+    fn get_bool(&mut self) -> Result<bool> {
         match self.get_u8() {
             0x00 => Ok(false),
             0x01 => Ok(true),
@@ -29,7 +29,7 @@ pub trait BufExt: Buf {
         }
     }
 
-    fn get_string(&mut self, cap: i32) -> anyhow::Result<String> {
+    fn get_string(&mut self, cap: i32) -> Result<String> {
         let len = self.get_varint()?;
 
         ensure!(len >= 0, "String lenght is negative");
@@ -39,11 +39,11 @@ pub trait BufExt: Buf {
         Ok(String::from_utf8(bytes.to_vec())?)
     }
 
-    fn get_identifier(&mut self) -> anyhow::Result<String> {
+    fn get_identifier(&mut self) -> Result<String> {
         self.get_string(32767)
     }
 
-    fn get_component(&mut self) -> anyhow::Result<Component> {
+    fn get_component(&mut self) -> Result<Component> {
         let len = self.get_varint()? as usize;
         let reader = self.take(len).reader();
         Ok(serde_json::from_reader(reader)?)
@@ -55,10 +55,27 @@ pub trait BufExt: Buf {
         Uuid::from_bytes(bytes)
     }
 
-    fn get_byte_array(&mut self) -> anyhow::Result<Bytes> {
+    fn get_bitset(&mut self) -> Result<Vec<i64>> {
+        let len = self.get_varint()?;
+        let mut vec = Vec::with_capacity(len as usize);
+        for _ in 0..len {
+            vec.push(self.get_i64())
+        }
+        Ok(vec)
+    }
+
+    fn get_byte_array(&mut self) -> Result<Bytes> {
         let len = self.get_varint()? as usize;
         ensure!(len <= self.remaining(), "Invalid byte array lenght");
         Ok(self.copy_to_bytes(len))
+    }
+
+    fn get_option<T>(&mut self, fun: impl Fn(&mut Self) -> Result<T>) -> Result<Option<T>> {
+        if self.get_bool()? {
+            Ok(Some(fun(self)?))   
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -88,7 +105,7 @@ pub trait BufMutExt: BufMut {
     }
 
     fn put_bool(&mut self, bool: bool) {
-        self.put_u8(if bool { 0x01 } else { 0x00 })
+        self.put_u8(bool.into())
     }
 
     fn put_string(&mut self, str: &str) {
@@ -97,17 +114,34 @@ pub trait BufMutExt: BufMut {
         self.put_slice(str);
     }
 
-    fn put_component(&mut self, component: &Component) -> anyhow::Result<()> {
-        Ok(self.put_byte_array(&serde_json::to_vec(component)?))
+    fn put_component(&mut self, component: &Component) -> Result<()> { 
+        self.put_byte_array(&serde_json::to_vec(component)?);
+        Ok(())
     }
 
     fn put_uuid(&mut self, uuid: Uuid) {
         self.put_slice(uuid.as_bytes());
     }
 
+    fn put_bitset(&mut self, vec: Vec<i64>) {
+        self.put_varint(vec.len() as i32);
+        for i in vec {
+            self.put_i64(i)
+        }
+    }
+
     fn put_byte_array(&mut self, bytes: &[u8]) {
         self.put_varint(bytes.len() as i32);
         self.put_slice(bytes);
+    }
+    
+    fn put_option<T>(&mut self, option: &Option<T>, fun: impl Fn(&mut Self, &T)) {
+        if let Some(value) = option {
+            self.put_bool(true);
+            fun(self, value);
+        } else {
+            self.put_bool(false)
+        }
     }
 }
 

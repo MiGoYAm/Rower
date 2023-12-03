@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use super::Packet;
 use crate::protocol::{ProtocolVersion, buffer::{BufExt, BufMutExt}};
 use bytes::{Buf, BufMut, BytesMut};
@@ -11,7 +11,7 @@ pub struct Handshake {
 }
 
 impl Packet for Handshake {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             protocol: buf.get_varint()?,
             server_address: buf.get_string(255)?,

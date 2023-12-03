@@ -1,4 +1,4 @@
-use anyhow::{anyhow, ensure};
+use anyhow::{anyhow, ensure, Result};
 use std::net::SocketAddr;
 
 use bytes::Buf;
@@ -52,7 +52,7 @@ impl Connection {
         Self::create(stream, ProtocolVersion::Unknown, direction)
     }
 
-    pub async fn connect(addr: SocketAddr, version: ProtocolVersion, direction: Direction) -> anyhow::Result<Self> {
+    pub async fn connect(addr: SocketAddr, version: ProtocolVersion, direction: Direction) -> Result<Self> {
         let tcp = TcpStream::connect(addr).await?;
         tcp.set_nodelay(true)?;
         Ok(Self::create(tcp, version, direction))
@@ -62,7 +62,7 @@ impl Connection {
         (self.receive_registry, self.send_registry) = get_protocol_registry(state, self.protocol, self.direction);
     }
 
-    pub async fn auto_read(&mut self) -> anyhow::Result<PacketType> {
+    pub async fn auto_read(&mut self) -> Result<PacketType> {
         let mut packet = self.read_raw_packet().await?;
 
         if let Some(producer) = self.receive_registry.get_packet(packet.id()) {
@@ -75,7 +75,7 @@ impl Connection {
         }
     }
 
-    pub async fn read_packet<T: Packet + 'static>(&mut self) -> anyhow::Result<T> {
+    pub async fn read_packet<T: Packet + 'static>(&mut self) -> Result<T> {
         let mut frame = self.read_raw_packet().await?.buffer;
         let registry_id = self.receive_registry.get_id::<T>()?;
         let id = frame.get_u8();
@@ -87,34 +87,28 @@ impl Connection {
         Ok(result)
     }
 
-    pub async fn read_raw_packet(&mut self) -> anyhow::Result<RawPacket> {
+    pub async fn read_raw_packet(&mut self) -> Result<RawPacket> {
         match self.framed_read.next().await {
             Some(result) => Ok(RawPacket { buffer: result? }),
             None => Err(anyhow!("Connection aborted")),
         }
     }
 
-    pub async fn write_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
-        self.framed_write.feed(packet).await?;
-
-        if self.framed_read.read_buffer().is_empty() {
-            self.framed_write.flush().await
-        } else {
-            Ok(())
-        }
+    pub async fn queue_raw_packet(&mut self, packet: RawPacket) -> Result<()> {
+        self.framed_write.feed(packet).await
     }
 
-    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
+    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<()> {
         let raw_packet = self.serialize_packet(packet)?;
         self.framed_write.send(raw_packet).await
     }
 
-    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
+    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<()> {
         let raw_packet = self.serialize_packet(packet)?;
         self.framed_write.feed(raw_packet).await
     }
 
-    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> anyhow::Result<RawPacket> {
+    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> Result<RawPacket> {
         let mut raw_packet = RawPacket::new();
         raw_packet.set_id(*self.send_registry.get_id::<T>()?);
 
@@ -125,7 +119,7 @@ impl Connection {
         Ok(raw_packet)
     }
 
-    pub async fn shutdown(&mut self) -> anyhow::Result<()> {
+    pub async fn shutdown(&mut self) -> Result<()> {
         self.framed_write.close().await
     }
 
@@ -159,21 +153,21 @@ pub struct WriteHalf {
 }
 
 impl WriteHalf {
-    pub async fn queue_raw_packet(&mut self, packet: RawPacket) -> anyhow::Result<()> {
+    pub async fn queue_raw_packet(&mut self, packet: RawPacket) -> Result<()> {
         self.framed_write.feed(packet).await
     }
 
-    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
+    pub async fn queue_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<()> {
         let raw_packet = self.serialize_packet(packet)?;
         self.framed_write.feed(raw_packet).await
     }
 
-    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> anyhow::Result<()> {
+    pub async fn write_packet<T: Packet + 'static>(&mut self, packet: T) -> Result<()> {
         let raw_packet = self.serialize_packet(packet)?;
         self.framed_write.send(raw_packet).await
     }
 
-    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> anyhow::Result<RawPacket> {
+    fn serialize_packet<T: Packet + 'static>(&self, packet: T) -> Result<RawPacket> {
         let mut raw_packet = RawPacket::new();
         raw_packet.set_id(*self.send_registry.get_id::<T>()?);
 
@@ -184,11 +178,11 @@ impl WriteHalf {
         Ok(raw_packet)
     }
 
-    pub async fn flush(&mut self) -> anyhow::Result<()> {
+    pub async fn flush(&mut self) -> Result<()> {
         self.framed_write.flush().await
     }
 
-    pub async fn shutdown(&mut self) -> anyhow::Result<()> {
+    pub async fn shutdown(&mut self) -> Result<()> {
         self.framed_write.close().await
     }
 }
@@ -200,7 +194,7 @@ pub struct ReadHalf {
 }
 
 impl ReadHalf {
-    pub async fn auto_read(&mut self) -> anyhow::Result<PacketType> {
+    pub async fn auto_read(&mut self) -> Result<PacketType> {
         let mut packet = self.read_raw_packet().await?;
 
         if let Some(producer) = self.receive_registry.get_packet(packet.id()) {
@@ -213,7 +207,7 @@ impl ReadHalf {
         }
     }
 
-    pub async fn read_packet<T: Packet + 'static>(&mut self) -> anyhow::Result<T> {
+    pub async fn read_packet<T: Packet + 'static>(&mut self) -> Result<T> {
         let mut frame = self.read_raw_packet().await?.buffer;
         let registry_id = self.receive_registry.get_id::<T>()?;
         let id = frame.get_u8();
@@ -225,7 +219,7 @@ impl ReadHalf {
         Ok(result)
     }
 
-    pub async fn read_raw_packet(&mut self) -> anyhow::Result<RawPacket> {
+    pub async fn read_raw_packet(&mut self) -> Result<RawPacket> {
         match self.framed_read.next().await {
             Some(result) => Ok(RawPacket { buffer: result? }),
             None => Err(anyhow!("Connection aborted")),

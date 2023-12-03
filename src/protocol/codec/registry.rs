@@ -1,6 +1,6 @@
 use std::{any::TypeId, collections::HashMap, vec};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use once_cell::sync;
 use strum::IntoEnumIterator;
@@ -9,7 +9,7 @@ use crate::protocol::{
     packet::{
         handshake::Handshake,
         login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression},
-        play::{PluginMessage, JoinGame, Respawn, BossBar},
+        play::{PluginMessage, JoinGame, Respawn, BossBar, ChatCommand},
         status::{Ping, StatusRequest, StatusResponse},
         Packet, PacketType,
     },
@@ -17,7 +17,7 @@ use crate::protocol::{
 };
 use super::util::produce;
 
-pub type PacketProducer = fn(&mut BytesMut, ProtocolVersion) -> anyhow::Result<PacketType>;
+pub type PacketProducer = fn(&mut BytesMut, ProtocolVersion) -> Result<PacketType>;
 
 pub fn get_protocol_registry(state: State, version: ProtocolVersion, direction: Direction) -> (&'static ProtocolRegistry, &'static ProtocolRegistry) {
     match state {
@@ -74,7 +74,7 @@ pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
     registry.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
     registry.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
     registry.insert::<BossBar>(produce!(BossBar), Id::Clientbound(Mapping::Single(0x0b)));
-    //registry.insert::<ChatCommand>(produce!(ChatCommand), Id::Serverbound(Mapping::Single(0x04)));
+    registry.insert::<ChatCommand>(produce!(ChatCommand), Id::Serverbound(Mapping::Single(0x04)));
     registry
 });
 
@@ -196,7 +196,7 @@ impl ProtocolRegistry {
         }
     }
 
-    pub fn get_id<T: Packet + 'static>(&self) -> anyhow::Result<&u8> {
+    pub fn get_id<T: Packet + 'static>(&self) -> Result<&u8> {
         self.packet_to_id.get(&TypeId::of::<T>()).ok_or(anyhow!("Packet does not exist in this state or version"))
     }
 }

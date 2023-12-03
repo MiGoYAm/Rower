@@ -1,5 +1,6 @@
 use crate::protocol::{ProtocolVersion, buffer::BufMutExt};
 use crate::Component;
+use anyhow::Result;
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use super::Packet;
 pub struct StatusRequest;
 
 impl Packet for StatusRequest {
-    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self)
     }
 
@@ -65,7 +66,7 @@ pub struct StatusResponse<'a> {
 }
 
 impl<'a> Packet for StatusResponse<'a> {
-    fn from_bytes(_buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(_buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         unimplemented!("read status response")
     }
 
@@ -79,7 +80,7 @@ pub struct Ping {
 }
 
 impl Packet for Ping {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> anyhow::Result<Self> {
+    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
         Ok(Self { payload: buf.get_i64() })
     }
 

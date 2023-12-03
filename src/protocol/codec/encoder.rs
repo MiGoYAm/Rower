@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 
+use anyhow::Result;
 use bytes::{BytesMut, BufMut};
 use libdeflater::{CompressionLvl, Compressor};
 use tokio_util::codec::Encoder;
@@ -31,7 +32,7 @@ impl MinecraftEncoder {
 impl Encoder<RawPacket> for MinecraftEncoder {
     type Error = anyhow::Error;
 
-    fn encode(&mut self, item: RawPacket, dst: &mut BytesMut) -> anyhow::Result<()> {
+    fn encode(&mut self, item: RawPacket, dst: &mut BytesMut) -> Result<()> {
         let packet = item.buffer;
         let uncompressed_length = packet.len() as u32;
 
@@ -46,8 +47,8 @@ impl Encoder<RawPacket> for MinecraftEncoder {
                 let header = data.len();
                 unsafe { data.set_len(data.capacity()); }
 
-                let compressed_length = COMPRESSOR.with(|c| {
-                    c.borrow_mut().zlib_compress(&packet, &mut data[header..])
+                let compressed_length = COMPRESSOR.with_borrow_mut(|c| {
+                    c.zlib_compress(&packet, &mut data[header..])
                 })?;
                 unsafe { data.set_len(header + compressed_length); }
 
