@@ -6,26 +6,25 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [target.x86_64-unknown-linux-gnu]
-linker = "/usr/bin/clang"
-rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
+#linker = "/usr/bin/clang"
+#rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
 
 [profile.release]
-debug = true
+#debug = true
 
 [dependencies]
 log = "0.4.20"
 simple_logger = "4.3.0"
-tokio = { version = "1.34.0", features = ["rt", "net", "macros", "io-util", "parking_lot"] }
+tokio = { version = "1.35.1", features = ["rt", "net", "macros", "io-util", "parking_lot"] }
 tokio-util = { version = "0.7.10", features = ["codec", "io"] }
-futures = "0.3.29"
+futures = { version = "0.3.30", features = ["std"], default-features = false }
 bytes = "1.5.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "1.6", features = ["v3", "serde"] }
+uuid = { version = "1.7", features = ["v3", "serde"] }
 libdeflater = "1.19.0"
-once_cell = "1.18.0"
-base64 = "0.21.5"
-image = "0.24.7"
+base64 = "0.21.6"
+image = { version = "0.24.8", features = ["png"], default-features = false }
 strum = { version = "0.25.0", features = ["derive"] }
 md-5 = "0.10.6"
 anyhow = "1.0"
