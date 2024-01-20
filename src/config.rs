@@ -1,7 +1,13 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, path::Path, fs, sync::OnceLock};
+use std::{
+    fs,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::Path,
+    sync::OnceLock,
+};
 
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use libdeflater::CompressionLvl;
+use serde::{Deserialize, Serialize, Serializer};
 
 pub static CONFIG: OnceLock<Config> = OnceLock::new();
 
@@ -28,21 +34,45 @@ pub struct Config {
     #[serde(rename = "bind")]
     pub address: SocketAddr,
     pub compression_threshold: i32,
-    //pub compression_level: CompressionLvl,
+    #[serde(serialize_with = "ser", deserialize_with = "de")]
+    pub compression_level: CompressionLvl,
     pub online: bool,
     pub backend_server: SocketAddr,
-    pub fallback_server: SocketAddr
+    pub fallback_server: SocketAddr,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { 
+        Self {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 25565),
             compression_threshold: 256,
-            //compression_level: CompressionLvl::default(),
+            compression_level: CompressionLvl::default(),
             online: true,
             backend_server: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25566),
-            fallback_server: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25567)
+            fallback_server: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25567),
         }
+    }
+}
+
+fn ser<S>(level: &CompressionLvl, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_i32(level.into())
+}
+
+fn de<'de, D>(deserializer: D) -> Result<CompressionLvl, D::Error>
+where
+    D: serde::Deserializer<'de>
+{
+    let level = i32::deserialize(deserializer)?;
+
+    if level == -1 {
+        return Ok(CompressionLvl::default());
+    }
+
+    match CompressionLvl::new(level) {
+        Ok(lvl) => Ok(lvl),
+        _ => Err(serde::de::Error::custom("invalid compression level (accepted range 1-12)"))
     }
 }

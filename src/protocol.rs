@@ -199,7 +199,6 @@ pub fn generate_offline_uuid(username: &String) -> Uuid {
     let mut hasher = Md5::new_with_prefix(b"OfflinePlayer:");
     hasher.update(username.as_bytes());
     let hash = hasher.finalize();
-    (ProtocolVersion::V1_7_2..ProtocolVersion::V1_19_4);
-
+    
     uuid::Builder::from_md5_bytes(hash.into()).into_uuid()
 }

@@ -2,15 +2,15 @@ use std::cell::RefCell;
 
 use anyhow::Result;
 use bytes::{BytesMut, BufMut};
-use libdeflater::{CompressionLvl, Compressor};
+use libdeflater::Compressor;
 use tokio_util::codec::Encoder;
 
-use crate::protocol::packet::RawPacket;
+use crate::{protocol::packet::RawPacket, config::CONFIG};
 
 use super::util::{write_varint, varint_length_usize};
 
 thread_local!(
-    static COMPRESSOR: RefCell<Compressor> = RefCell::new(Compressor::new(CompressionLvl::default()))
+    static COMPRESSOR: RefCell<Compressor> = RefCell::new(Compressor::new(CONFIG.get().unwrap().compression_level))
 );
 
 pub struct MinecraftEncoder {
