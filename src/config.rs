@@ -1,10 +1,9 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, path::Path, fs};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, path::Path, fs, sync::OnceLock};
 
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-pub static CONFIG: Lazy<Config> = Lazy::new(|| load_config().unwrap());
+pub static CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn load_config() -> Result<Config> {
     let path = Path::new("config.toml");

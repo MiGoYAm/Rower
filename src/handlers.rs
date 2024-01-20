@@ -1,5 +1,6 @@
 use std::io::Cursor;
 use std::net::SocketAddr;
+use std::sync::OnceLock;
 
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine};
@@ -8,7 +9,6 @@ use image::{
     error::{LimitError, LimitErrorKind},
     image_dimensions, ImageError, ImageOutputFormat,
 };
-use once_cell::sync::Lazy;
 
 use crate::config::CONFIG;
 use crate::{
@@ -16,7 +16,9 @@ use crate::{
     protocol::packet::status::{Motd, Players, Status, Version},
 };
 
-pub static STATUS: Lazy<Vec<u8>> = Lazy::new(|| {
+pub static STATUS: OnceLock<Vec<u8>> = OnceLock::new();
+
+pub fn create_status() -> Result<Vec<u8>> {
     let status = Status {
         version: Version {
             name: "1.19.4",
@@ -30,8 +32,8 @@ pub static STATUS: Lazy<Vec<u8>> = Lazy::new(|| {
         description: Motd::Component(Component::text("azz")),
         favicon: read_favicon().ok(),
     };
-    serde_json::to_vec(&status).unwrap()
-});
+    Ok(serde_json::to_vec(&status)?)
+}
 
 fn read_favicon() -> Result<String> {
     const PATH: &str = "server-icon.png";
@@ -51,5 +53,5 @@ fn read_favicon() -> Result<String> {
 }
 
 pub fn get_initial_server() -> SocketAddr {
-    CONFIG.backend_server
+    CONFIG.get().unwrap().backend_server
 }

@@ -1,8 +1,9 @@
+#![feature(lazy_cell)]
+use std::future::Future;
 use std::net::SocketAddr;
 
 use anyhow::{anyhow, Result};
 use error::ProxyError;
-use futures::Future;
 use handlers::{STATUS, get_initial_server};
 use log::{error, info};
 use protocol::buffer::{BufExt, BufMutExt};
@@ -18,7 +19,8 @@ use tokio::task::{self, JoinHandle};
 
 use crate::component::Component;
 
-use crate::config::CONFIG;
+use crate::config::{CONFIG, load_config};
+use crate::handlers::create_status;
 use crate::protocol::packet::play::BossBarAction;
 use crate::protocol::packet::status::{Ping, StatusRequest, StatusResponse};
 use crate::protocol::{generate_offline_uuid, ProtocolVersion};
@@ -32,9 +34,12 @@ mod error;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     simple_logger::init_with_level(log::Level::Info)?;
+    CONFIG.set(load_config()?).unwrap();
+    STATUS.set(create_status()?).unwrap();
 
-    let listener = TcpListener::bind(CONFIG.address).await?;
-    info!("Listening on {}", CONFIG.address);
+    let address = CONFIG.get().unwrap().address;
+    let listener = TcpListener::bind(address).await?;
+    info!("Listening on {}", address);
 
     let local = task::LocalSet::new();
     local.run_until(listen(listener)).await
@@ -63,7 +68,7 @@ where
 async fn handle_handshake(mut client: Connection) -> Result<()> {
     let Handshake { state, protocol, .. } = client.read_packet().await?;
 
-    client.protocol = protocol.try_into()?;
+    client.protocol = protocol.into();
 
     match state {
         NextState::Status => handle_status(client).await,
@@ -76,7 +81,7 @@ async fn handle_status(mut client: Connection) -> Result<()> {
 
     client.read_packet::<StatusRequest>().await?;
 
-    client.write_packet(StatusResponse { status: &STATUS }).await?;
+    client.write_packet(StatusResponse { status: STATUS.get().unwrap() }).await?;
 
     let ping: Ping = client.read_packet().await?;
     client.write_packet(ping).await
@@ -92,9 +97,9 @@ async fn handle_login(mut client: Connection) -> Result<()> {
         return client.disconnect(Component::text("We support versions above 1.19.1")).await;
     }
 
-    if CONFIG.online {}
+    if CONFIG.get().unwrap().online {}
 
-    let threshold = CONFIG.compression_threshold;
+    let threshold = CONFIG.get().unwrap().compression_threshold;
     if threshold > -1 {
         client.conn.queue_packet(SetCompression { threshold }).await?;
         client.conn.enable_compression(threshold);
@@ -113,7 +118,7 @@ async fn handle_login(mut client: Connection) -> Result<()> {
     client.conn.write_packet(LoginSuccess {
         uuid: conn_info.uuid,
         username: conn_info.username.clone(),
-        properties: Vec::new()
+        properties: vec![]
     }).await?;
 
     handle_play(client, server, conn_info).await

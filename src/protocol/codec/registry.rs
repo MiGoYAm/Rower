@@ -1,8 +1,7 @@
-use std::{any::TypeId, collections::HashMap, vec};
+use std::{any::TypeId, collections::HashMap, vec, sync::LazyLock};
 
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use once_cell::sync;
 use strum::IntoEnumIterator;
 
 use crate::protocol::{
@@ -39,43 +38,43 @@ enum Id {
     Both(Mapping, Mapping),
 }
 
-pub static HANDSHAKE_REG: sync::Lazy<PacketRegistry> = sync::Lazy::new(|| {
-    let mut registry = PacketRegistry::new();
-    registry.serverbound.insert_packet_to_id::<Handshake>(0x00);
-    registry
+pub static HANDSHAKE_REG: LazyLock<PacketRegistry> = LazyLock::new(|| {
+    let mut reg = PacketRegistry::new();
+    reg.serverbound.insert_packet_to_id::<Handshake>(0x00);
+    reg
 });
 
-pub static STATUS_REG: sync::Lazy<PacketRegistry> = sync::Lazy::new(|| {
-    let mut registry = PacketRegistry::new();
-    registry.serverbound.insert_packet_to_id::<StatusRequest>(0x00);
-    registry.clientbound.insert_packet_to_id::<StatusResponse>(0x00);
+pub static STATUS_REG: LazyLock<PacketRegistry> = LazyLock::new(|| {
+    let mut reg = PacketRegistry::new();
+    reg.serverbound.insert_packet_to_id::<StatusRequest>(0x00);
+    reg.clientbound.insert_packet_to_id::<StatusResponse>(0x00);
 
-    registry.serverbound.insert_packet_to_id::<Ping>(0x01);
-    registry.clientbound.insert_packet_to_id::<Ping>(0x01);
+    reg.serverbound.insert_packet_to_id::<Ping>(0x01);
+    reg.clientbound.insert_packet_to_id::<Ping>(0x01);
 
-    registry
+    reg
 });
 
-pub static LOGIN_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::Single(0x00)));
-    registry.insert::<LoginStart>(produce!(LoginStart), Id::Serverbound(Mapping::Single(0x00)));
-    registry.insert::<EncryptionRequest>(produce!(EncryptionRequest), Id::Clientbound(Mapping::Single(0x01)));
-    registry.insert::<EncryptionResponse>(produce!(EncryptionResponse), Id::Serverbound(Mapping::Single(0x01)));
-    registry.insert::<SetCompression>(produce!(SetCompression), Id::Clientbound(Mapping::Single(0x03)));
-    registry.insert::<LoginSuccess>(produce!(LoginSuccess), Id::Clientbound(Mapping::Single(0x02)));
-    registry
+pub static LOGIN_REG: LazyLock<StateRegistry> = LazyLock::new(|| {
+    let mut reg = StateRegistry::new();
+    reg.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::Single(0x00)));
+    reg.insert::<LoginStart>(produce!(LoginStart), Id::Serverbound(Mapping::Single(0x00)));
+    reg.insert::<EncryptionRequest>(produce!(EncryptionRequest), Id::Clientbound(Mapping::Single(0x01)));
+    reg.insert::<EncryptionResponse>(produce!(EncryptionResponse), Id::Serverbound(Mapping::Single(0x01)));
+    reg.insert::<SetCompression>(produce!(SetCompression), Id::Clientbound(Mapping::Single(0x03)));
+    reg.insert::<LoginSuccess>(produce!(LoginSuccess), Id::Clientbound(Mapping::Single(0x02)));
+    reg
 });
 
-pub static PLAY_REG: sync::Lazy<StateRegistry> = sync::Lazy::new(|| {
-    let mut registry = StateRegistry::new();
-    registry.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::List(vec![(0x1a, ProtocolVersion::V1_19_4), (0x17, ProtocolVersion::V1_19_3)])));
-    registry.insert::<PluginMessage>(produce!(PluginMessage), Id::Clientbound(Mapping::Single(0x17)));
-    registry.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
-    registry.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
-    registry.insert::<BossBar>(produce!(BossBar), Id::Clientbound(Mapping::Single(0x0b)));
-    registry.insert::<ChatCommand>(produce!(ChatCommand), Id::Serverbound(Mapping::Single(0x04)));
-    registry
+pub static PLAY_REG: LazyLock<StateRegistry> = LazyLock::new(|| {
+    let mut reg = StateRegistry::new();
+    reg.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::List(vec![(0x1a, ProtocolVersion::V1_19_4), (0x17, ProtocolVersion::V1_19_3)])));
+    reg.insert::<PluginMessage>(produce!(PluginMessage), Id::Clientbound(Mapping::Single(0x17)));
+    reg.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
+    reg.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
+    reg.insert::<BossBar>(produce!(BossBar), Id::Clientbound(Mapping::Single(0x0b)));
+    reg.insert::<ChatCommand>(produce!(ChatCommand), Id::Serverbound(Mapping::Single(0x04)));
+    reg
 });
 
 pub struct StateRegistry {
