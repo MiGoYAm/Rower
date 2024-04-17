@@ -1,12 +1,12 @@
-use bytes::BytesMut;
 use anyhow::Result;
+use bytes::{Buf, BytesMut};
 
 use self::{
-    login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression, LoginPluginRequest, LoginPluginResponse},
-    play::{PluginMessage, BossBar, ChatCommand},
+    login::Disconnect,
+    play::{BossBar, ChatCommand, PluginMessage},
 };
 
-use super::ProtocolVersion;
+use super::{Direction, ProtocolVersion, State};
 
 pub mod handshake;
 pub mod login;
@@ -14,9 +14,26 @@ pub mod play;
 pub mod status;
 
 pub trait Packet: Sized {
-    fn from_bytes(buf: &mut BytesMut, version: ProtocolVersion) -> Result<Self>;
+    fn from_bytes(buf: &mut impl Buf, version: ProtocolVersion) -> Result<Self>;
 
     fn put_buf(self, buf: &mut BytesMut, version: ProtocolVersion);
+}
+
+pub trait IdPacket: Packet {
+    fn id(direction: Direction, state: State, version: ProtocolVersion) -> Option<u8> {
+        None
+    }
+}
+
+pub trait Packets {
+    fn decode(
+        direction: Direction,
+        state: State,
+        version: ProtocolVersion,
+        packet: RawPacket,
+    ) -> Result<Self>
+    where
+        Self: Sized;
 }
 
 pub struct RawPacket {
@@ -25,10 +42,12 @@ pub struct RawPacket {
 
 impl RawPacket {
     pub fn new() -> Self {
-        Self { buffer: BytesMut::zeroed(1) }
+        Self {
+            buffer: BytesMut::zeroed(1),
+        }
     }
 
-    pub fn id(&mut self) -> u8 {
+    pub fn id(&self) -> u8 {
         self.buffer[0]
     }
 
@@ -44,13 +63,6 @@ impl RawPacket {
 pub enum PacketType {
     Raw(RawPacket),
 
-    LoginStart(LoginStart),
-    EncryptionRequest(EncryptionRequest),
-    EncryptionResponse(EncryptionResponse),
-    SetCompression(SetCompression),
-    LoginSuccess(LoginSuccess),
-    LoginPluginRequest(LoginPluginRequest),
-    LoginPluginResponse(LoginPluginResponse),
     Disconnect(Disconnect),
 
     PluginMessage(PluginMessage),

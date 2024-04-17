@@ -1,8 +1,10 @@
 use anyhow::{anyhow, Result};
-use super::Packet;
-use crate::protocol::{ProtocolVersion, buffer::{BufExt, BufMutExt}};
+use macros::packet_const;
+use super::{IdPacket, Packet};
+use crate::protocol::{buffer::{BufExt, BufMutExt}, Direction, ProtocolVersion, State};
 use bytes::{Buf, BufMut, BytesMut};
 
+#[packet_const(Direction::Serverbound, State::Handshake, 0x00)]
 pub struct Handshake {
     pub protocol: i32,
     pub server_address: String,
@@ -11,7 +13,7 @@ pub struct Handshake {
 }
 
 impl Packet for Handshake {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
+    fn from_bytes(buf: &mut impl Buf, _: ProtocolVersion) -> Result<Self> {
         Ok(Self {
             protocol: buf.get_varint()?,
             server_address: buf.get_string(255)?,

@@ -1,16 +1,19 @@
-use crate::protocol::{ProtocolVersion, buffer::BufMutExt};
+use crate::protocol::{buffer::BufMutExt, ProtocolVersion};
+use crate::protocol::{Direction, State};
 use crate::Component;
 use anyhow::Result;
 use bytes::{Buf, BufMut, BytesMut};
+use macros::packet_const;
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
-use super::Packet;
+use super::{IdPacket, Packet};
 
+#[packet_const(Direction::Serverbound, State::Status, 0x00)]
 pub struct StatusRequest;
 
 impl Packet for StatusRequest {
-    fn from_bytes(_: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
+    fn from_bytes(_: &mut impl Buf, _: ProtocolVersion) -> Result<Self> {
         Ok(Self)
     }
 
@@ -61,12 +64,13 @@ pub struct Status {
     //pub enforces_secure_chat: bool,
 }
 
+#[packet_const(Direction::Clientbound, State::Status, 0x00)]
 pub struct StatusResponse<'a> {
     pub status: &'a Vec<u8>,
 }
 
-impl<'a> Packet for StatusResponse<'a> {
-    fn from_bytes(_buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
+impl Packet for StatusResponse<'_> {
+    fn from_bytes(_buf: &mut impl Buf, _: ProtocolVersion) -> Result<Self> {
         unimplemented!("read status response")
     }
 
@@ -75,16 +79,15 @@ impl<'a> Packet for StatusResponse<'a> {
     }
 }
 
-pub struct Ping {
-    payload: i64,
-}
+#[packet_const(_, State::Status, 0x01)]
+pub struct Ping(i64);
 
 impl Packet for Ping {
-    fn from_bytes(buf: &mut BytesMut, _: ProtocolVersion) -> Result<Self> {
-        Ok(Self { payload: buf.get_i64() })
+    fn from_bytes(buf: &mut impl Buf, _: ProtocolVersion) -> Result<Self> {
+        Ok(Self(buf.get_i64()))
     }
 
     fn put_buf(self, buf: &mut BytesMut, _: ProtocolVersion) {
-        buf.put_i64(self.payload);
+        buf.put_i64(self.0);
     }
 }

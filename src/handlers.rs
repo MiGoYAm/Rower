@@ -7,16 +7,20 @@ use base64::{engine::general_purpose, Engine};
 use image::io::Reader as ImageReader;
 use image::{
     error::{LimitError, LimitErrorKind},
-    image_dimensions, ImageError, ImageOutputFormat,
+    image_dimensions, ImageError, ImageFormat,
 };
+use log::error;
 
-use crate::config::CONFIG;
+use crate::config::config;
 use crate::{
     component::Component,
     protocol::packet::status::{Motd, Players, Status, Version},
 };
 
-pub static STATUS: OnceLock<Vec<u8>> = OnceLock::new();
+pub fn status() -> &'static Vec<u8> {
+    static STATUS: OnceLock<Vec<u8>> = OnceLock::new();
+    STATUS.get_or_try_init(create_status).unwrap()
+}
 
 pub fn create_status() -> Result<Vec<u8>> {
     let status = Status {
@@ -30,7 +34,7 @@ pub fn create_status() -> Result<Vec<u8>> {
             sample: vec![],
         },
         description: Motd::Component(Component::text("azz")),
-        favicon: read_favicon().ok(),
+        favicon: read_favicon().inspect_err(|err| error!("{}", err)).ok(),
     };
     Ok(serde_json::to_vec(&status)?)
 }
@@ -40,18 +44,22 @@ fn read_favicon() -> Result<String> {
 
     let dimensions = image_dimensions(PATH)?;
     if dimensions != (64, 64) {
-        return Err(ImageError::Limits(LimitError::from_kind(LimitErrorKind::DimensionError)).into());
+        return Err(
+            ImageError::Limits(LimitError::from_kind(LimitErrorKind::DimensionError)).into(),
+        );
     }
 
     let file_image = ImageReader::open(PATH)?;
     let mut buffer = Vec::with_capacity(4096);
 
-    file_image.decode()?.write_to(&mut Cursor::new(&mut buffer), ImageOutputFormat::Png)?;
+    file_image
+        .decode()?
+        .write_to(&mut Cursor::new(&mut buffer), ImageFormat::Png)?;
     let favicon = general_purpose::STANDARD_NO_PAD.encode(buffer);
 
     Ok(format!("data:image/png;base64,{}", favicon))
 }
 
 pub fn get_initial_server() -> SocketAddr {
-    CONFIG.get().unwrap().backend_server
+    config().backend_server
 }

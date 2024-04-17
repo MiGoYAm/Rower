@@ -1,30 +1,32 @@
-use std::{any::TypeId, collections::HashMap, vec, sync::LazyLock};
+use std::{
+    any::{type_name, TypeId},
+    collections::HashMap,
+    sync::LazyLock,
+    vec,
+};
 
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use strum::IntoEnumIterator;
 
+use super::util::produce;
 use crate::protocol::{
     packet::{
-        handshake::Handshake,
-        login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression},
-        play::{PluginMessage, JoinGame, Respawn, BossBar, ChatCommand},
-        status::{Ping, StatusRequest, StatusResponse},
+        login::{Disconnect, EncryptionResponse, LoginStart},
+        play::{BossBar, ChatCommand, JoinGame, PluginMessage, Respawn},
         Packet, PacketType,
     },
     Direction, ProtocolVersion, State,
 };
-use super::util::produce;
 
 pub type PacketProducer = fn(&mut BytesMut, ProtocolVersion) -> Result<PacketType>;
 
-pub fn get_protocol_registry(state: State, version: ProtocolVersion, direction: Direction) -> (&'static ProtocolRegistry, &'static ProtocolRegistry) {
-    match state {
-        State::Handshake => HANDSHAKE_REG.get_registry(&direction),
-        State::Status => STATUS_REG.get_registry(&direction),
-        State::Login => LOGIN_REG.get_registry(&direction, &version),
-        State::Play => PLAY_REG.get_registry(&direction, &version),
-    }
+pub fn get_protocol_registry(
+    direction: Direction,
+    state: State,
+    version: ProtocolVersion,
+) -> (&'static ProtocolRegistry, &'static ProtocolRegistry) {
+    PLAY_REG.get_registries(direction, version)
 }
 
 enum Mapping {
@@ -38,72 +40,89 @@ enum Id {
     Both(Mapping, Mapping),
 }
 
-pub static HANDSHAKE_REG: LazyLock<PacketRegistry> = LazyLock::new(|| {
-    let mut reg = PacketRegistry::new();
-    reg.serverbound.insert_packet_to_id::<Handshake>(0x00);
-    reg
-});
-
-pub static STATUS_REG: LazyLock<PacketRegistry> = LazyLock::new(|| {
-    let mut reg = PacketRegistry::new();
-    reg.serverbound.insert_packet_to_id::<StatusRequest>(0x00);
-    reg.clientbound.insert_packet_to_id::<StatusResponse>(0x00);
-
-    reg.serverbound.insert_packet_to_id::<Ping>(0x01);
-    reg.clientbound.insert_packet_to_id::<Ping>(0x01);
-
-    reg
-});
-
 pub static LOGIN_REG: LazyLock<StateRegistry> = LazyLock::new(|| {
     let mut reg = StateRegistry::new();
     reg.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::Single(0x00)));
-    reg.insert::<LoginStart>(produce!(LoginStart), Id::Serverbound(Mapping::Single(0x00)));
-    reg.insert::<EncryptionRequest>(produce!(EncryptionRequest), Id::Clientbound(Mapping::Single(0x01)));
-    reg.insert::<EncryptionResponse>(produce!(EncryptionResponse), Id::Serverbound(Mapping::Single(0x01)));
-    reg.insert::<SetCompression>(produce!(SetCompression), Id::Clientbound(Mapping::Single(0x03)));
-    reg.insert::<LoginSuccess>(produce!(LoginSuccess), Id::Clientbound(Mapping::Single(0x02)));
+    reg.insert::<LoginStart>(None, Id::Serverbound(Mapping::Single(0x00)));
+    reg.insert::<EncryptionResponse>(None, Id::Serverbound(Mapping::Single(0x01)));
     reg
 });
 
 pub static PLAY_REG: LazyLock<StateRegistry> = LazyLock::new(|| {
     let mut reg = StateRegistry::new();
-    reg.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::List(vec![(0x1a, ProtocolVersion::V1_19_4), (0x17, ProtocolVersion::V1_19_3)])));
-    reg.insert::<PluginMessage>(produce!(PluginMessage), Id::Clientbound(Mapping::Single(0x17)));
+    reg.insert::<Disconnect>(
+        produce!(Disconnect),
+        Id::Clientbound(Mapping::List(vec![
+            (0x1a, ProtocolVersion::V1_19_4),
+            (0x17, ProtocolVersion::V1_19_3),
+        ])),
+    );
+    reg.insert::<PluginMessage>(
+        produce!(PluginMessage),
+        Id::Clientbound(Mapping::Single(0x17)),
+    );
     reg.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
     reg.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
     reg.insert::<BossBar>(produce!(BossBar), Id::Clientbound(Mapping::Single(0x0b)));
-    reg.insert::<ChatCommand>(produce!(ChatCommand), Id::Serverbound(Mapping::Single(0x04)));
+    reg.insert::<ChatCommand>(
+        produce!(ChatCommand),
+        Id::Serverbound(Mapping::Single(0x04)),
+    );
     reg
 });
 
 pub struct StateRegistry {
-    protocols: Vec<PacketRegistry>
+    protocols: Vec<PacketRegistry>,
 }
 
 impl StateRegistry {
     pub fn new() -> Self {
         Self {
-            protocols: vec![PacketRegistry::new(); ProtocolVersion::iter().count()]
+            protocols: vec![PacketRegistry::new(); ProtocolVersion::iter().count()],
         }
     }
 
-    pub fn get_registry(&self, direction: &Direction, protocol: &ProtocolVersion) -> (&ProtocolRegistry, &ProtocolRegistry) {
-        self.protocols.get(*protocol as usize).unwrap().get_registry(direction)
+    pub fn get_registries(
+        &self,
+        direction: Direction,
+        protocol: ProtocolVersion,
+    ) -> (&ProtocolRegistry, &ProtocolRegistry) {
+        self.protocols
+            .get(protocol as usize)
+            .unwrap()
+            .get_registry(direction)
     }
 
-    fn some<T: Packet + 'static>(registry: &mut PacketRegistry, direction: Direction, id: u8, producer: Option<PacketProducer>) {
+    pub fn get_registry(&self, direction: Direction, protocol: ProtocolVersion) -> &ProtocolRegistry {
+        let registries = self.protocols.get(protocol as usize).unwrap();
+        match direction {
+            Direction::Clientbound => &registries.clientbound,
+            Direction::Serverbound => &registries.serverbound,
+        }
+    }
+
+    fn some<T: Packet + 'static>(
+        registry: &mut PacketRegistry,
+        direction: Direction,
+        id: u8,
+        producer: Option<PacketProducer>,
+    ) {
         let registry = match direction {
             Direction::Clientbound => &mut registry.clientbound,
             Direction::Serverbound => &mut registry.serverbound,
         };
         match producer {
             Some(producer) => registry.insert::<T>(producer, id),
-            None => registry.insert_packet_to_id::<T>(id)
+            None => registry.insert_packet_to_id::<T>(id),
         }
     }
 
-    fn insert_mapping<T: Packet + 'static>(&mut self, producer: Option<PacketProducer>, mapping: Mapping, direction: Direction) {
+    fn insert_mapping<T: Packet + 'static>(
+        &mut self,
+        producer: Option<PacketProducer>,
+        mapping: Mapping,
+        direction: Direction,
+    ) {
         match mapping {
             Mapping::Single(id) => {
                 for packet_registry in &mut self.protocols {
@@ -113,8 +132,13 @@ impl StateRegistry {
             Mapping::List(mut list) => {
                 list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-                for (index, (id, first_version)) in list.iter().map(|(i, v)| (i, *v as usize)).enumerate() {
-                    let next_version = *list.get(index + 1).map(|e| e.1 as usize).get_or_insert(ProtocolVersion::V1_19_4 as usize);
+                for (index, (id, first_version)) in
+                    list.iter().map(|(i, v)| (i, *v as usize)).enumerate()
+                {
+                    let next_version = *list
+                        .get(index + 1)
+                        .map(|e| e.1 as usize)
+                        .get_or_insert(ProtocolVersion::V1_19_4 as usize);
                     let is_last = list.len() - 1 == index;
 
                     for (version, packet_registry) in self.protocols.iter_mut().enumerate() {
@@ -129,8 +153,12 @@ impl StateRegistry {
 
     fn insert<T: Packet + 'static>(&mut self, packet_producer: Option<PacketProducer>, id: Id) {
         match id {
-            Id::Serverbound(mapping) => self.insert_mapping::<T>(packet_producer, mapping, Direction::Serverbound),
-            Id::Clientbound(mapping) => self.insert_mapping::<T>(packet_producer, mapping, Direction::Clientbound),
+            Id::Serverbound(mapping) => {
+                self.insert_mapping::<T>(packet_producer, mapping, Direction::Serverbound)
+            }
+            Id::Clientbound(mapping) => {
+                self.insert_mapping::<T>(packet_producer, mapping, Direction::Clientbound)
+            }
             Id::Both(server, client) => {
                 self.insert_mapping::<T>(packet_producer, server, Direction::Serverbound);
                 self.insert_mapping::<T>(packet_producer, client, Direction::Clientbound);
@@ -153,7 +181,10 @@ impl PacketRegistry {
         }
     }
 
-    pub fn get_registry(&self, direction: &Direction) -> (&ProtocolRegistry, &ProtocolRegistry) {
+    pub const fn get_registry(
+        &self,
+        direction: Direction,
+    ) -> (&ProtocolRegistry, &ProtocolRegistry) {
         match direction {
             Direction::Serverbound => (&self.clientbound, &self.serverbound),
             Direction::Clientbound => (&self.serverbound, &self.clientbound),
@@ -171,7 +202,7 @@ impl ProtocolRegistry {
     pub fn new() -> Self {
         Self {
             packet_to_id: HashMap::new(),
-            id_to_packeta: [None; 128]
+            id_to_packeta: [None; 128],
         }
     }
 
@@ -188,14 +219,16 @@ impl ProtocolRegistry {
         self.id_to_packeta[id as usize] = Some(producer);
     }
 
-    pub fn get_packet(&self, id: u8) -> &Option<PacketProducer> {
+    pub fn get_packet(&self, id: u8) -> Option<&PacketProducer> {
         match self.id_to_packeta.get(id as usize) {
-            Some(option) => option,
-            None => &None
+            Some(option) => option.as_ref(),
+            None => None,
         }
     }
 
     pub fn get_id<T: Packet + 'static>(&self) -> Result<&u8> {
-        self.packet_to_id.get(&TypeId::of::<T>()).ok_or(anyhow!("Packet does not exist in this state or version"))
+        self.packet_to_id.get(&TypeId::of::<T>()).ok_or(
+            anyhow!("Packet does not exist in this state or version").context(type_name::<T>()),
+        )
     }
 }

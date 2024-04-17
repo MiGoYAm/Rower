@@ -1,71 +1,98 @@
 #![allow(dead_code)]
-use md5::{Digest, Md5};
 use strum::EnumIter;
-use uuid::Uuid;
 
+pub mod buffer;
 pub mod codec;
+pub mod nbt;
 pub mod packet;
 pub mod util;
 pub mod wrappers;
-pub mod nbt;
-pub mod buffer;
 
+#[derive(Clone, Copy, Debug)]
 pub enum State {
     Handshake,
     Status,
     Login,
-    Play
+    Play,
 }
 
-#[derive(Clone, Copy)]
+impl State {
+    pub const HANDSHAKE: u8 = 0;
+    pub const STATUS: u8 = 1;
+    pub const LOGIN: u8 = 2;
+    pub const PLAY: u8 = 3;
+
+    pub const fn from_id(id: u8) -> Self {
+        match id {
+            Self::HANDSHAKE => State::Handshake,
+            Self::STATUS => State::Status,
+            Self::LOGIN => State::Login,
+            Self::PLAY => State::Play,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub enum Direction {
     Clientbound,
     Serverbound,
 }
 
-#[repr(usize)]
-#[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, EnumIter)]
-pub enum ProtocolVersion {
-    V1_19_4,
-    V1_19_3,
-    V1_19_2,
-    V1_19,
-    V1_18_2,
-    V1_18,
-    V1_17_1,
-    V1_17,
-    V1_16_4,
-    V1_16_3,
-    V1_16_2,
-    V1_16_1,
-    V1_16,
-    V1_15_2,
-    V1_15_1,
-    V1_15,
-    V1_14_4,
-    V1_14_3,
-    V1_14_2,
-    V1_14_1,
-    V1_14,
-    V1_13_2,
-    V1_13_1,
-    V1_13,
-    V1_12_2,
-    V1_12_1,
-    V1_12,
-    V1_11_1,
-    V1_11,
-    V1_10,
-    V1_9_4,
-    V1_9_2,
-    V1_9_1,
-    V1_9,
-    V1_8,
-    V1_7_6,
-    V1_7_2,
-    Unknown,
+impl Direction {
+    pub const CLIENTBOUND: bool = true;
+    pub const SERVERBOUND: bool = !Self::CLIENTBOUND;
 }
 
+#[repr(usize)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, EnumIter, Debug)]
+pub enum ProtocolVersion {
+    Unknown,
+    V1_7_2,
+    V1_7_6,
+    V1_8,
+    V1_9,
+    V1_9_1,
+    V1_9_2,
+    V1_9_4,
+    V1_10,
+    V1_11,
+    V1_11_1,
+    V1_12,
+    V1_12_1,
+    V1_12_2,
+    V1_13,
+    V1_13_1,
+    V1_13_2,
+    V1_14,
+    V1_14_1,
+    V1_14_2,
+    V1_14_3,
+    V1_14_4,
+    V1_15,
+    V1_15_1,
+    V1_15_2,
+    V1_16,
+    V1_16_1,
+    V1_16_2,
+    V1_16_3,
+    V1_16_4,
+    V1_17,
+    V1_17_1,
+    V1_18,
+    V1_18_2,
+    V1_19,
+    V1_19_2,
+    V1_19_3,
+    V1_19_4,
+    V1_20,
+    V1_20_2,
+    V1_20_3,
+}
+
+pub const V1_20_3: i32 = 765;
+pub const V1_20_2: i32 = 764;
+pub const V1_20: i32 = 763;
 pub const V1_19_4: i32 = 762;
 pub const V1_19_3: i32 = 761;
 pub const V1_19_2: i32 = 760;
@@ -107,6 +134,9 @@ pub const V1_7_2: i32 = 4;
 impl std::convert::From<i32> for ProtocolVersion {
     fn from(value: i32) -> Self {
         match value {
+            V1_20_3 => ProtocolVersion::V1_20_3,
+            V1_20_2 => ProtocolVersion::V1_20_2,
+            V1_20 => ProtocolVersion::V1_20,
             V1_19_4 => ProtocolVersion::V1_19_4,
             V1_19_3 => ProtocolVersion::V1_19_3,
             V1_19_2 => ProtocolVersion::V1_19_2,
@@ -144,7 +174,7 @@ impl std::convert::From<i32> for ProtocolVersion {
             V1_8 => ProtocolVersion::V1_8,
             V1_7_6 => ProtocolVersion::V1_7_6,
             V1_7_2 => ProtocolVersion::V1_7_2,
-            _ => ProtocolVersion::Unknown
+            _ => ProtocolVersion::Unknown,
         }
     }
 }
@@ -152,6 +182,9 @@ impl std::convert::From<i32> for ProtocolVersion {
 impl std::convert::From<ProtocolVersion> for i32 {
     fn from(val: ProtocolVersion) -> Self {
         match val {
+            ProtocolVersion::V1_20_3 => V1_20_3,
+            ProtocolVersion::V1_20_2 => V1_20_2,
+            ProtocolVersion::V1_20 => V1_20,
             ProtocolVersion::V1_19_4 => V1_19_4,
             ProtocolVersion::V1_19_3 => V1_19_3,
             ProtocolVersion::V1_19_2 => V1_19_2,
@@ -189,16 +222,7 @@ impl std::convert::From<ProtocolVersion> for i32 {
             ProtocolVersion::V1_8 => V1_8,
             ProtocolVersion::V1_7_6 => V1_7_6,
             ProtocolVersion::V1_7_2 => V1_7_2,
-            ProtocolVersion::Unknown => -1
-            //ProtocolVersion::Unknown(version) => version,
+            ProtocolVersion::Unknown => -1,
         }
     }
-}
-
-pub fn generate_offline_uuid(username: &String) -> Uuid {
-    let mut hasher = Md5::new_with_prefix(b"OfflinePlayer:");
-    hasher.update(username.as_bytes());
-    let hash = hasher.finalize();
-    
-    uuid::Builder::from_md5_bytes(hash.into()).into_uuid()
 }

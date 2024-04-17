@@ -41,25 +41,25 @@ pub fn write_varint(dst: &mut BytesMut, value: u32) {
 }
 
 #[inline(always)]
-pub fn varint_length(v: u32) -> u32 {
+pub const fn varint_length(v: u32) -> u32 {
     match v {
         0..=127 => 1,
         128..=16383 => 2,
         //16384..=2097151 => 3,
         //2097152..=268435456 => 4,
         //_ => 5
-        _ => 3
+        _ => 3,
     }
 }
 
 #[inline(always)]
-pub fn varint_length_usize(v: u32) -> usize {
+pub const fn varint_length_usize(v: u32) -> usize {
     match v {
         0..=127 => 1,
         128..=16383 => 2,
         16384..=2097151 => 3,
         2097152..=268435456 => 4,
-        _ => 5
+        _ => 5,
     }
 }
 
@@ -68,4 +68,8 @@ macro_rules! produce {
         Some(|b, v| Ok(PacketType::$packet($packet::from_bytes(b, v)?)))
     };
 }
-pub(crate) use produce; 
+pub(crate) use produce;
+
+macro_rules! table {
+    ( $($version:literal => id:literal),* ) => {};
+}

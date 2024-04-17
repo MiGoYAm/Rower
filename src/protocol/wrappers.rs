@@ -1,34 +1,18 @@
 use std::net::SocketAddr;
 
-use anyhow::Result;
 use uuid::Uuid;
 
-use crate::component::Component;
+use crate::online::generate_offline_uuid;
 
-use super::{codec::connection::Connection, packet::login::Disconnect};
+use super::codec::connection::ServerConn;
 
-pub struct Client {
-    pub conn: Connection,
-}
-
-impl Client {
-    pub fn new(conn: Connection) -> Self {
-        Self { conn }
-    }
-
-    pub async fn disconnect(mut self, reason: Component) -> Result<()> {
-        self.conn.write_packet(Disconnect { reason }).await?;
-        self.conn.shutdown().await
-    }
-}
-
-pub struct Server {
+pub struct Server<const S: u8> {
     pub address: SocketAddr,
-    pub conn: Connection,
+    pub conn: ServerConn<S>
 }
 
-impl Server {
-    pub fn new(conn: Connection, address: SocketAddr) -> Self {
+impl<const S: u8> Server<S> {
+    pub fn new(conn: ServerConn<S>, address: SocketAddr) -> Self {
         Self { address, conn }
     }
 }
@@ -40,7 +24,8 @@ pub struct ConnectionInfo {
 }
 
 impl ConnectionInfo {
-    pub fn new(username: String, uuid: Uuid) -> Self {
+    pub fn new(username: String, uuid: Option<Uuid>) -> Self {
+        let uuid = uuid.unwrap_or_else(|| generate_offline_uuid(&username));
         Self { username, uuid, boss_bars: Vec::new() }
     }
 }

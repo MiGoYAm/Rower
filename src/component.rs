@@ -1,5 +1,8 @@
 #![allow(dead_code)]
-use serde::{Deserialize, Serialize, Serializer, Deserializer, de::{Visitor, self}};
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -20,28 +23,31 @@ pub enum Color {
     LightPurple,
     Yellow,
     White,
-    #[serde(serialize_with = "color_serialize", deserialize_with = "color_deserialize")]
+    #[serde(
+        serialize_with = "color_serialize",
+        deserialize_with = "color_deserialize"
+    )]
     #[serde(untagged)]
     Rgb(u8, u8, u8),
 }
 
-fn color_serialize<S>(red: &u8, green: &u8, blue: &u8, s: S) -> Result<S::Ok, S::Error> 
-where 
-    S: Serializer
+fn color_serialize<S>(red: &u8, green: &u8, blue: &u8, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
 {
     s.serialize_str(&format!("#{:02X}{:02X}{:02X}", red, green, blue))
 }
 
-fn color_deserialize<'de, D>(d: D) -> Result<(u8, u8, u8), D::Error> 
-where 
-    D: Deserializer<'de>
+fn color_deserialize<'de, D>(d: D) -> Result<(u8, u8, u8), D::Error>
+where
+    D: Deserializer<'de>,
 {
     d.deserialize_str(ColorVisitor)
 }
 
 fn hex<E>(src: &[u8]) -> Result<u8, E>
 where
-    E: de::Error 
+    E: de::Error,
 {
     let str = String::from_utf8_lossy(src);
     u8::from_str_radix(&str, 16).map_err(|e| E::custom(e))
@@ -57,15 +63,19 @@ impl<'de> Visitor<'de> for ColorVisitor {
     }
 
     fn visit_str<E>(self, str: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error
+    where
+        E: de::Error,
     {
         let bytes = str.as_bytes();
         if str.len() != 7 || bytes[0] != b'#' {
             return Err(E::custom("string is not a color"));
         }
 
-        Ok((hex(&bytes[1..=2])?, hex(&bytes[3..=4])?, hex(&bytes[5..=6])?))
+        Ok((
+            hex(&bytes[1..=2])?,
+            hex(&bytes[3..=4])?,
+            hex(&bytes[5..=6])?,
+        ))
     }
 }
 
@@ -77,34 +87,34 @@ pub enum Type {
     #[serde(untagged)]
     Translation {
         translate: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        with: Option<Vec<Component>>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        with: Vec<Component>,
     },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bold: Option<bool>,
+    bold: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub italic: Option<bool>,
+    italic: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub underlined: Option<bool>,
+    underlined: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub strikethrough: Option<bool>,
+    strikethrough: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub obfuscated: Option<bool>,
+    obfuscated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub font: Option<String>,
+    font: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<Color>,
+    color: Option<Color>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub insertion: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra: Option<Vec<Component>>,
-    
+    insertion: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    extra: Vec<Component>,
+
     #[serde(flatten)]
-    pub content: Type,
+    content: Type,
 }
 
 impl Component {
@@ -119,35 +129,48 @@ impl Component {
             font: None,
             color: None,
             insertion: None,
-            extra: None,
+            extra: Vec::new(),
         }
     }
 
     pub fn text(text: &str) -> Self {
         Self::content(Type::Text(text.to_owned()))
     }
-    
-    pub fn append(&mut self, mut components: Vec<Component>) {
-        self.extra.get_or_insert(Vec::new()).append(&mut components);
+
+    pub fn translate(translate: &str) -> Self {
+        Self::content(Type::Translation {
+            translate: translate.to_owned(),
+            with: Vec::new(),
+        })
     }
 
-    pub fn push(&mut self, component: Component) {
-        self.extra.get_or_insert(Vec::new()).push(component)
+    pub fn append(mut self, mut components: Vec<Component>) -> Self {
+        self.extra.append(&mut components);
+        self
     }
 
-    pub fn bold(&mut self, b: bool) {
+    pub fn push(mut self, component: Component) -> Self {
+        self.extra.push(component);
+        self
+    }
+
+    pub fn bold(mut self, b: bool) -> Self {
         self.bold = Some(b);
+        self
     }
 
-    pub fn underlined(&mut self, b: bool) {
+    pub fn underlined(mut self, b: bool) -> Self {
         self.underlined = Some(b);
+        self
     }
 
-    pub fn strikethrough(&mut self, b: bool) {
+    pub fn strikethrough(mut self, b: bool) -> Self {
         self.strikethrough = Some(b);
+        self
     }
 
-    pub fn obfuscated(&mut self, b: bool) {
+    pub fn obfuscated(mut self, b: bool) -> Self {
         self.obfuscated = Some(b);
+        self
     }
 }

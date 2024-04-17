@@ -1,31 +1,44 @@
 use std::cell::RefCell;
 
 use anyhow::Result;
-use bytes::{BytesMut, BufMut};
+use bytes::{BufMut, BytesMut};
 use libdeflater::Compressor;
+use openssl::symm::Crypter;
 use tokio_util::codec::Encoder;
 
-use crate::{protocol::packet::RawPacket, config::CONFIG};
+use crate::{config::config, protocol::packet::RawPacket};
 
-use super::util::{write_varint, varint_length_usize};
+use super::util::{varint_length_usize, write_varint};
 
 thread_local!(
-    static COMPRESSOR: RefCell<Compressor> = RefCell::new(Compressor::new(CONFIG.get().unwrap().compression_level))
+    static COMPRESSOR: RefCell<Compressor> = RefCell::new(Compressor::new(config().compression_level))
 );
 
 pub struct MinecraftEncoder {
     threshold: Option<usize>,
+    cipher: Option<Crypter>,
 }
 
 impl MinecraftEncoder {
     pub fn new() -> Self {
-        Self { threshold: None }
+        Self {
+            threshold: None,
+            cipher: None,
+        }
     }
 
-    pub fn enable_compression(&mut self, threshold: i32) {
-        if threshold > -1 {
-            self.threshold = Some(threshold as usize)
-        }
+    pub fn enable_compression(&mut self, threshold: u32) {
+        self.threshold = Some(threshold as usize)
+    }
+
+    pub fn enable_encryption(&mut self, key: [u8; 16]) -> Result<()> {
+        self.cipher = Some(Crypter::new(
+            openssl::symm::Cipher::aes_128_cfb8(),
+            openssl::symm::Mode::Encrypt,
+            &key,
+            Some(&key),
+        )?);
+        Ok(())
     }
 }
 
@@ -38,24 +51,27 @@ impl Encoder<RawPacket> for MinecraftEncoder {
 
         if let Some(threshold) = self.threshold {
             if packet.len() >= threshold {
-                let ds = dst.split();
+                let buffer = dst.split();
                 dst.reserve(packet.len() + 6);
 
                 let mut data = dst.split_off(3);
 
                 write_varint(&mut data, uncompressed_length);
                 let header = data.len();
-                unsafe { data.set_len(data.capacity()); }
+                unsafe {
+                    data.set_len(data.capacity());
+                }
 
-                let compressed_length = COMPRESSOR.with_borrow_mut(|c| {
-                    c.zlib_compress(&packet, &mut data[header..])
-                })?;
-                unsafe { data.set_len(header + compressed_length); }
+                let compressed_length = COMPRESSOR
+                    .with_borrow_mut(|c| c.zlib_compress(&packet, &mut data[header..]))?;
+                unsafe {
+                    data.set_len(header + compressed_length);
+                }
 
                 write_21bit_varint(data.len() as u32, dst);
 
                 dst.unsplit(data);
-                dst.unsplit(ds);
+                dst.unsplit(buffer);
             } else {
                 dst.reserve(packet.len() + varint_length_usize(uncompressed_length) + 1);
 
@@ -67,6 +83,13 @@ impl Encoder<RawPacket> for MinecraftEncoder {
             dst.reserve(packet.len() + varint_length_usize(uncompressed_length));
             write_varint(dst, uncompressed_length);
             dst.extend_from_slice(&packet);
+        }
+
+        if let Some(cipher) = &mut self.cipher {
+            let len = dst.len();
+            let buffer = dst.split();
+            dst.reserve(len);
+            cipher.update(&buffer, dst)?;
         }
 
         Ok(())

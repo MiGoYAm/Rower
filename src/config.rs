@@ -1,17 +1,19 @@
 use std::{
-    fs,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::Path,
-    sync::OnceLock,
+    fs, net::{IpAddr, Ipv4Addr, SocketAddr}, path::Path, sync::OnceLock
 };
 
 use anyhow::Result;
 use libdeflater::CompressionLvl;
 use serde::{Deserialize, Serialize, Serializer};
 
-pub static CONFIG: OnceLock<Config> = OnceLock::new();
+pub fn config() -> &'static Config {
+    static CONFIG: OnceLock<Config> = OnceLock::new();
+    CONFIG.get_or_init(|| {
+        load_config().inspect_err(|err| log::error!("{}", err)).unwrap_or_default()
+    })
+}
 
-pub fn load_config() -> Result<Config> {
+fn load_config() -> Result<Config> {
     let path = Path::new("config.toml");
 
     if path.exists() {
@@ -65,11 +67,10 @@ fn de<'de, D>(deserializer: D) -> Result<CompressionLvl, D::Error>
 where
     D: serde::Deserializer<'de>
 {
-    let level = i32::deserialize(deserializer)?;
-
-    if level == -1 {
-        return Ok(CompressionLvl::default());
-    }
+    let level = match i32::deserialize(deserializer) {
+        Ok(-1) | Err(_) => return Ok(CompressionLvl::default()),
+        Ok(level) => level,
+    };
 
     match CompressionLvl::new(level) {
         Ok(lvl) => Ok(lvl),

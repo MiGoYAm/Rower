@@ -1,4 +1,6 @@
-use super::{packet::login::Property, buffer::{BufMutExt, BufExt}};
+use crate::online::Property;
+
+use super::buffer::{BufExt, BufMutExt};
 use anyhow::Result;
 use bytes::{Buf, BufMut};
 
@@ -14,7 +16,7 @@ pub fn put_property(buf: &mut impl BufMut, property: &Property) {
     buf.put_string(&property.name);
     buf.put_string(&property.value);
     buf.put_option(&property.signature, |b, s| b.put_string(s));
-    if let Some(signature) = &property.signature  {
+    if let Some(signature) = &property.signature {
         buf.put_bool(true);
         buf.put_string(signature);
     } else {
@@ -22,10 +24,10 @@ pub fn put_property(buf: &mut impl BufMut, property: &Property) {
     }
 }
 
-pub fn get_array<T, B, F>(buf: &mut B, fun: F) -> Result<Vec<T>> 
-where 
+pub fn get_array<T, B, F>(buf: &mut B, fun: F) -> Result<Vec<T>>
+where
     B: Buf,
-    F: Fn(&mut B) -> Result<T>
+    F: Fn(&mut B) -> Result<T>,
 {
     let length = buf.get_varint()? as usize;
     let mut array = Vec::with_capacity(length);
@@ -37,10 +39,10 @@ where
     Ok(array)
 }
 
-pub fn put_array<T, B, F>(buf: &mut B, vec: Vec<T>, fun: F) 
-where 
+pub fn put_array<T, B, F>(buf: &mut B, vec: Vec<T>, fun: F)
+where
     B: BufMut,
-    F: Fn(&mut B, &T)
+    F: Fn(&mut B, &T),
 {
     buf.put_varint(vec.len() as i32);
     for item in &vec {
