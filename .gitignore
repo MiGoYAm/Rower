@@ -4,3 +4,5 @@ target/
 .vscode/
 server-icon.png
 config.toml
+server/
+server2/

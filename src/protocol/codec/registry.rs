@@ -12,21 +12,20 @@ use strum::IntoEnumIterator;
 use super::util::produce;
 use crate::protocol::{
     packet::{
-        login::{Disconnect, EncryptionResponse, LoginStart},
-        play::{BossBar, ChatCommand, JoinGame, PluginMessage, Respawn},
-        Packet, PacketType,
+        handshake::Handshake, login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginAcknowledged, LoginStart, LoginSuccess, SetCompression}, play::{BossBar, JoinGame, PluginMessage, Respawn}, status::{Ping, StatusRequest, StatusResponse}, Packet, PacketType
     },
     Direction, ProtocolVersion, State,
 };
 
 pub type PacketProducer = fn(&mut BytesMut, ProtocolVersion) -> Result<PacketType>;
 
-pub fn get_protocol_registry(
-    direction: Direction,
-    state: State,
-    version: ProtocolVersion,
-) -> (&'static ProtocolRegistry, &'static ProtocolRegistry) {
-    PLAY_REG.get_registries(direction, version)
+pub fn get_protocol_registry(state: State, version: ProtocolVersion, direction: Direction) -> (&'static ProtocolRegistry, &'static ProtocolRegistry) {
+    match state {
+        State::Handshake => HANDSHAKE_REG.get_registry(direction),
+        State::Status => STATUS_REG.get_registry(direction),
+        State::Login => LOGIN_REG.get_registries(direction, version),
+        State::Play => PLAY_REG.get_registries(direction, version),
+    }
 }
 
 enum Mapping {
@@ -40,11 +39,32 @@ enum Id {
     Both(Mapping, Mapping),
 }
 
+pub static HANDSHAKE_REG: LazyLock<PacketRegistry> = LazyLock::new(|| {
+    let mut reg = PacketRegistry::new();
+    reg.serverbound.insert_packet_to_id::<Handshake>(0x00);
+    reg
+});
+
+pub static STATUS_REG: LazyLock<PacketRegistry> = LazyLock::new(|| {
+    let mut reg = PacketRegistry::new();
+    reg.serverbound.insert_packet_to_id::<StatusRequest>(0x00);
+    reg.clientbound.insert_packet_to_id::<StatusResponse>(0x00);
+
+    reg.serverbound.insert_packet_to_id::<Ping>(0x01);
+    reg.clientbound.insert_packet_to_id::<Ping>(0x01);
+
+    reg
+});
+
 pub static LOGIN_REG: LazyLock<StateRegistry> = LazyLock::new(|| {
     let mut reg = StateRegistry::new();
     reg.insert::<Disconnect>(produce!(Disconnect), Id::Clientbound(Mapping::Single(0x00)));
-    reg.insert::<LoginStart>(None, Id::Serverbound(Mapping::Single(0x00)));
-    reg.insert::<EncryptionResponse>(None, Id::Serverbound(Mapping::Single(0x01)));
+    reg.insert::<LoginStart>(produce!(LoginStart), Id::Serverbound(Mapping::Single(0x00)));
+    reg.insert::<EncryptionRequest>(produce!(EncryptionRequest), Id::Clientbound(Mapping::Single(0x01)));
+    reg.insert::<EncryptionResponse>(produce!(EncryptionResponse), Id::Serverbound(Mapping::Single(0x01)));
+    reg.insert::<SetCompression>(produce!(SetCompression), Id::Clientbound(Mapping::Single(0x03)));
+    reg.insert::<LoginSuccess>(produce!(LoginSuccess), Id::Clientbound(Mapping::Single(0x02)));
+    reg.insert::<LoginAcknowledged>(None, Id::Serverbound(Mapping::Single(0x03)));
     reg
 });
 
@@ -64,10 +84,10 @@ pub static PLAY_REG: LazyLock<StateRegistry> = LazyLock::new(|| {
     reg.insert::<JoinGame>(None, Id::Clientbound(Mapping::Single(0x28)));
     reg.insert::<Respawn>(None, Id::Clientbound(Mapping::Single(0x41)));
     reg.insert::<BossBar>(produce!(BossBar), Id::Clientbound(Mapping::Single(0x0b)));
-    reg.insert::<ChatCommand>(
-        produce!(ChatCommand),
-        Id::Serverbound(Mapping::Single(0x04)),
-    );
+    // reg.insert::<ChatCommand>(
+    //     produce!(ChatCommand),
+    //     Id::Serverbound(Mapping::Single(0x04)),
+    // );
     reg
 });
 

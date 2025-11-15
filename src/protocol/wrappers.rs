@@ -1,21 +1,6 @@
-use std::net::SocketAddr;
-
 use uuid::Uuid;
 
 use crate::online::generate_offline_uuid;
-
-use super::codec::connection::ServerConn;
-
-pub struct Server<const S: u8> {
-    pub address: SocketAddr,
-    pub conn: ServerConn<S>
-}
-
-impl<const S: u8> Server<S> {
-    pub fn new(conn: ServerConn<S>, address: SocketAddr) -> Self {
-        Self { address, conn }
-    }
-}
 
 pub struct ConnectionInfo {
     pub username: String,

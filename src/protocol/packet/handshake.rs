@@ -1,10 +1,8 @@
 use anyhow::{anyhow, Result};
-use macros::packet_const;
-use super::{IdPacket, Packet};
-use crate::protocol::{buffer::{BufExt, BufMutExt}, Direction, ProtocolVersion, State};
+use super::Packet;
+use crate::protocol::{buffer::{BufExt, BufMutExt}, ProtocolVersion};
 use bytes::{Buf, BufMut, BytesMut};
 
-#[packet_const(Direction::Serverbound, State::Handshake, 0x00)]
 pub struct Handshake {
     pub protocol: i32,
     pub server_address: String,

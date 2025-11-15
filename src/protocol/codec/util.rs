@@ -69,7 +69,3 @@ macro_rules! produce {
     };
 }
 pub(crate) use produce;
-
-macro_rules! table {
-    ( $($version:literal => id:literal),* ) => {};
-}

@@ -2,7 +2,7 @@ use anyhow::Result;
 use bytes::{Buf, BytesMut};
 
 use self::{
-    login::Disconnect,
+    login::{Disconnect, EncryptionRequest, EncryptionResponse, LoginPluginRequest, LoginStart, LoginSuccess, SetCompression},
     play::{BossBar, ChatCommand, PluginMessage},
 };
 
@@ -17,12 +17,6 @@ pub trait Packet: Sized {
     fn from_bytes(buf: &mut impl Buf, version: ProtocolVersion) -> Result<Self>;
 
     fn put_buf(self, buf: &mut BytesMut, version: ProtocolVersion);
-}
-
-pub trait IdPacket: Packet {
-    fn id(direction: Direction, state: State, version: ProtocolVersion) -> Option<u8> {
-        None
-    }
 }
 
 pub trait Packets {
@@ -63,7 +57,14 @@ impl RawPacket {
 pub enum PacketType {
     Raw(RawPacket),
 
+    EncryptionRequest(EncryptionRequest),
+    SetCompression(SetCompression),
+    LoginSuccess(LoginSuccess),
+    LoginPluginRequest(LoginPluginRequest),
     Disconnect(Disconnect),
+
+    LoginStart(LoginStart),
+    EncryptionResponse(EncryptionResponse),
 
     PluginMessage(PluginMessage),
     BossBar(BossBar),

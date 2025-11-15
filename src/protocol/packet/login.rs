@@ -5,12 +5,10 @@ use crate::protocol::{Direction, ProtocolVersion, State};
 use crate::Component;
 use anyhow::{anyhow, ensure, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use macros::packet_const;
 use uuid::Uuid;
 
-use super::{IdPacket, Packet, Packets, RawPacket};
+use super::{Packet, Packets, RawPacket};
 
-#[packet_const(Direction::Serverbound, State::Login, 0x00)]
 pub struct LoginStart {
     pub username: String,
     pub uuid: Option<Uuid>,
@@ -36,7 +34,6 @@ impl Packet for LoginStart {
     }
 }
 
-#[packet_const(Direction::Clientbound, State::Login, 0x02)]
 pub struct LoginSuccess {
     pub uuid: Uuid,
     pub username: String,
@@ -59,6 +56,16 @@ impl Packet for LoginSuccess {
     }
 }
 
+pub struct LoginAcknowledged;
+
+impl Packet for LoginAcknowledged {
+    fn from_bytes(_: &mut impl Buf, _: ProtocolVersion) -> Result<Self> {
+        Ok(Self)
+    }
+
+    fn put_buf(self, _: &mut BytesMut, _: ProtocolVersion) {}
+}
+
 pub struct Disconnect {
     pub reason: Component,
 }
@@ -75,24 +82,6 @@ impl Packet for Disconnect {
     }
 }
 
-impl IdPacket for Disconnect {
-    fn id(direction: Direction, state: State, version: ProtocolVersion) -> Option<u8> {
-        if let Direction::Clientbound = direction {
-            return match state {
-                State::Login => Some(0x00),
-                State::Play => match version {
-                    ProtocolVersion::V1_19_4 => Some(0x1A),
-                    ProtocolVersion::V1_19_3 => Some(0x17),
-                    _ => None,
-                },
-                _ => None,
-            };
-        }
-        None
-    }
-}
-
-#[packet_const(Direction::Clientbound, State::Login, 0x03)]
 pub struct SetCompression {
     pub threshold: i32,
 }
@@ -109,7 +98,6 @@ impl Packet for SetCompression {
     }
 }
 
-#[packet_const(Direction::Clientbound, State::Login, 0x04)]
 pub struct EncryptionRequest {
     pub server_id: String,
     pub public_key: Vec<u8>,
@@ -132,7 +120,6 @@ impl Packet for EncryptionRequest {
     }
 }
 
-#[packet_const(Direction::Serverbound, State::Login, 0x01)]
 pub struct EncryptionResponse {
     pub shared_secret: Bytes,
     pub verify_token: Bytes,
@@ -178,17 +165,6 @@ impl Packet for LoginPluginRequest {
     }
 }
 
-impl IdPacket for LoginPluginRequest {
-    fn id(direction: Direction, state: State, version: ProtocolVersion) -> Option<u8> {
-        match (direction, state) {
-            (Direction::Serverbound, State::Login) if version >= ProtocolVersion::V1_13 => {
-                Some(0x02)
-            }
-            _ => None,
-        }
-    }
-}
-
 pub struct LoginPluginResponse {
     pub message_id: i32,
     pub successful: bool,
@@ -216,19 +192,8 @@ impl Packet for LoginPluginResponse {
 
         if self.successful {
             if let Some(data) = &self.data {
-                buf.put_slice(&data);
+                buf.put_slice(data);
             }
-        }
-    }
-}
-
-impl IdPacket for LoginPluginResponse {
-    fn id(direction: Direction, state: State, version: ProtocolVersion) -> Option<u8> {
-        match (direction, state) {
-            (Direction::Clientbound, State::Login) if version >= ProtocolVersion::V1_13 => {
-                Some(0x02)
-            }
-            _ => None,
         }
     }
 }

@@ -110,17 +110,17 @@ pub struct Component {
     color: Option<Color>,
     #[serde(skip_serializing_if = "Option::is_none")]
     insertion: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default="Vec::new")]
     extra: Vec<Component>,
 
     #[serde(flatten)]
-    content: Type,
+    content: Option<Type>,
 }
 
 impl Component {
     pub const fn content(content: Type) -> Self {
         Self {
-            content,
+            content: Some(content),
             bold: None,
             italic: None,
             underlined: None,

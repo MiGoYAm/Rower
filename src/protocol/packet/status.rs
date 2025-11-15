@@ -1,15 +1,12 @@
 use crate::protocol::{buffer::BufMutExt, ProtocolVersion};
-use crate::protocol::{Direction, State};
 use crate::Component;
 use anyhow::Result;
 use bytes::{Buf, BufMut, BytesMut};
-use macros::packet_const;
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
-use super::{IdPacket, Packet};
+use super::Packet;
 
-#[packet_const(Direction::Serverbound, State::Status, 0x00)]
 pub struct StatusRequest;
 
 impl Packet for StatusRequest {
@@ -64,7 +61,6 @@ pub struct Status {
     //pub enforces_secure_chat: bool,
 }
 
-#[packet_const(Direction::Clientbound, State::Status, 0x00)]
 pub struct StatusResponse<'a> {
     pub status: &'a Vec<u8>,
 }
@@ -79,7 +75,6 @@ impl Packet for StatusResponse<'_> {
     }
 }
 
-#[packet_const(_, State::Status, 0x01)]
 pub struct Ping(i64);
 
 impl Packet for Ping {

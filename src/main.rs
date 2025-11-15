@@ -1,8 +1,11 @@
 #![feature(lazy_cell)]
 #![feature(inline_const)]
 #![feature(once_cell_try)]
+use anyhow::anyhow;
+use protocol::packet::play::{BossBar, JoinGame, Respawn};
 use std::future::Future;
 use std::net::SocketAddr;
+use tokio::sync::mpsc;
 
 use anyhow::{ensure, Result};
 use bytes::BytesMut;
@@ -13,17 +16,14 @@ use online::decrypt;
 use openssl::encrypt::Decrypter;
 use openssl::rsa::Padding;
 use protocol::buffer::{BufExt, BufMutExt};
-use protocol::codec::connection::{
-    ClientConn, ClientSideConn, Connection, ServerConn, ServerSideConn,
-};
+use protocol::codec::connection::Connection;
 use protocol::packet::handshake::{Handshake, NextState};
 use protocol::packet::login::{
-    Disconnect, EncryptionRequest, EncryptionResponse, LoginPackets, LoginStart, LoginSuccess,
-    SetCompression,
+    Disconnect, EncryptionRequest, EncryptionResponse, LoginStart, LoginSuccess, SetCompression,
 };
 use protocol::packet::PacketType;
-use protocol::wrappers::{ConnectionInfo, Server};
-use protocol::State;
+use protocol::wrappers::ConnectionInfo;
+use protocol::{Direction, State};
 use reqwest::{StatusCode, Url};
 use tokio::net::TcpListener;
 use tokio::task::{self, JoinHandle};
@@ -60,22 +60,22 @@ async fn listen(listener: TcpListener) -> Result<()> {
     loop {
         let (stream, _) = listener.accept().await?;
         stream.set_nodelay(true)?;
-        spawn(handle_handshake(Connection::new(stream)));
+        spawn(handle_handshake(Connection::new(
+            stream,
+            Direction::Clientbound,
+        )));
     }
 }
 
 fn spawn(task: impl Future<Output = Result<()>> + 'static + Send) -> JoinHandle<()> {
     task::spawn(async move {
         if let Err(err) = task.await {
-            error!("{}", err);
-            err.chain()
-                .skip(1)
-                .for_each(|cause| error!("because: {}", cause));
+            err.chain().for_each(|cause| error!("cause: {}", cause));
         }
     })
 }
 
-async fn handle_handshake(mut client: ClientConn<{ State::HANDSHAKE }>) -> Result<()> {
+async fn handle_handshake(mut client: Connection) -> Result<()> {
     let Handshake {
         state, protocol, ..
     } = client.recv_packet().await?;
@@ -83,12 +83,13 @@ async fn handle_handshake(mut client: ClientConn<{ State::HANDSHAKE }>) -> Resul
     client.protocol = protocol.into();
 
     match state {
-        NextState::Status => handle_status(client.upgrade()).await,
-        NextState::Login => handle_login(client.upgrade()).await,
+        NextState::Status => handle_status(client).await,
+        NextState::Login => handle_login(client).await,
     }
 }
 
-async fn handle_status(mut client: ClientConn<{ State::STATUS }>) -> Result<()> {
+async fn handle_status(mut client: Connection) -> Result<()> {
+    client.change_state(State::Status);
     client.recv_packet::<StatusRequest>().await?;
 
     client
@@ -99,7 +100,8 @@ async fn handle_status(mut client: ClientConn<{ State::STATUS }>) -> Result<()> 
     client.send_packet(ping).await
 }
 
-async fn handle_login(mut client: ClientConn<{ State::LOGIN }>) -> Result<()> {
+async fn handle_login(mut client: Connection) -> Result<()> {
+    client.change_state(State::Login);
     let LoginStart { username, uuid } = client.recv_packet().await?;
 
     if client.protocol < ProtocolVersion::V1_19_2 {
@@ -109,6 +111,7 @@ async fn handle_login(mut client: ClientConn<{ State::LOGIN }>) -> Result<()> {
     }
 
     if config().online {
+        panic!("online mode is not implemented");
         let mut decrypter = Decrypter::new(&RSA_KEYS.pair_key)?;
         decrypter.set_rsa_padding(Padding::PKCS1)?;
 
@@ -185,41 +188,53 @@ async fn handle_login(mut client: ClientConn<{ State::LOGIN }>) -> Result<()> {
         })
         .await?;
 
-    handle_play(client.upgrade(), server, conn_info).await
+    handle_play(client, server, conn_info).await
 }
 
 async fn handle_play(
-    client: ClientConn<{ State::PLAY }>,
-    server: Server<{ State::PLAY }>,
+    mut client: Connection,
+    server: Connection,
     connection: ConnectionInfo,
 ) -> Result<()> {
-    let (client_side, server_side) = client.mix(server.conn);
+    client.change_state(State::Play);
+    let (server_side, client_side) = client.mix(server);
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
 
-    let _server_handle = spawn(handle_server(client_side, connection));
-    let _client_handle = spawn(handle_client(server_side));
+    let _server_handle = spawn(handle_server(client_side, connection, tx));
+    let _client_handle = spawn(handle_client(server_side, rx));
 
     Ok(())
 }
 
-async fn handle_client(mut conn: ServerSideConn) -> Result<()> {
+async fn handle_client(mut conn: Connection, mut rx: mpsc::Receiver<Connection>) -> Result<()> {
     loop {
-        match conn.auto_read().await? {
-            PacketType::ChatCommand(packet) => {
-                println!("chat command");
-                conn.queue_packet_dyn(packet).await?;
+        tokio::select! {
+            packet_type = conn.auto_read() => {
+                match packet_type? {
+                    PacketType::ChatCommand(packet) => {
+                        println!("chat command");
+                        conn.auto_send_packet(packet).await?;
+                    }
+                    PacketType::Raw(packet) => {
+                        conn.auto_send_raw_packet(packet).await?;
+                    }
+                    _ => unreachable!("client cos wysłał"),
+                }
             }
-            PacketType::Raw(packet) => {
-                conn.queue_raw_packet(packet).await?;
-                //if client.is_buffer_empty() {
-                //    server.flush().await?
-                //}
+            server = rx.recv() => {
+                let server = server.ok_or_else(|| anyhow!("server closed"))?;
+                let (new_conn, _) = conn.mix(server);
+                conn = new_conn;
             }
-            _ => unreachable!("client cos wysłał"),
         }
     }
 }
 
-async fn handle_server(mut conn: ClientSideConn, mut connection: ConnectionInfo) -> Result<()> {
+async fn handle_server(
+    mut conn: Connection,
+    mut connection: ConnectionInfo,
+    tx: mpsc::Sender<Connection>,
+) -> Result<()> {
     loop {
         match conn.auto_read().await? {
             PacketType::PluginMessage(mut packet) => {
@@ -231,12 +246,18 @@ async fn handle_server(mut conn: ClientSideConn, mut connection: ConnectionInfo)
                     bytes.put_string(&brand);
                     packet.data = bytes.freeze();
                 }
-                conn.queue_packet_dyn(packet).await?;
+                conn.auto_send_packet(packet).await?;
             }
             PacketType::Disconnect(packet) => {
                 // todo: close server connection
-                return conn.send_packet_dyn(packet).await;
+                //return conn.send_packet(packet).await;
                 //return client.shutdown().await;
+
+                let server =
+                    switch_server(&mut conn, config().fallback_server, &mut connection).await?;
+                let (server, new_conn) = conn.mix(server);
+                conn = new_conn;
+                tx.send(server).await?;
             }
             PacketType::BossBar(packet) => {
                 match packet.action {
@@ -250,13 +271,10 @@ async fn handle_server(mut conn: ClientSideConn, mut connection: ConnectionInfo)
                     }
                     _ => {}
                 }
-                conn.queue_packet_dyn(packet).await?;
+                conn.auto_send_packet(packet).await?;
             }
             PacketType::Raw(packet) => {
-                conn.queue_raw_packet(packet).await?;
-                //if server.is_buffer_empty() {
-                //    client.flush().await?;
-                //}
+                conn.auto_send_raw_packet(packet).await?;
             }
             _ => unreachable!("server cos wysłał"),
         }
@@ -267,9 +285,9 @@ async fn create_backend_conn(
     server_address: SocketAddr,
     version: ProtocolVersion,
     connection: &ConnectionInfo,
-) -> Result<Server<{ State::PLAY }>, ProxyError> {
+) -> Result<Connection, ProxyError> {
     let mut server =
-        ServerConn::<{ State::HANDSHAKE }>::connect_to(server_address, version).await?;
+        Connection::connect_to(server_address, version, Direction::Serverbound).await?;
 
     server
         .queue_packet(Handshake {
@@ -280,7 +298,7 @@ async fn create_backend_conn(
         })
         .await?;
 
-    let mut server = server.upgrade::<{ State::LOGIN }>();
+    server.change_state(State::Login);
     server
         .send_packet(LoginStart {
             username: connection.username.clone(),
@@ -289,31 +307,35 @@ async fn create_backend_conn(
         .await?;
 
     loop {
-        return match server.recv_packets().await? {
-            LoginPackets::EncryptionRequest(_) => unimplemented!("Encryption is not implemented"),
-            LoginPackets::SetCompression(SetCompression { threshold }) => {
+        return match server.auto_read().await? {
+            PacketType::EncryptionRequest(_) => unimplemented!("Encryption is not implemented"),
+            PacketType::SetCompression(SetCompression { threshold }) => {
                 if threshold > -1 {
                     server.enable_compression(threshold as u32);
                 }
                 continue;
             }
-            LoginPackets::LoginSuccess(_) => Ok(Server::new(server.upgrade(), server_address)),
-            LoginPackets::LoginPluginRequest(_) => unimplemented!("login plugin request"),
-            LoginPackets::Disconnect(Disconnect { reason }) => {
+            PacketType::LoginSuccess(_) => {
+                server.change_state(State::Play);
+                Ok(server)
+            }
+            PacketType::LoginPluginRequest(_) => unimplemented!("login plugin request"),
+            PacketType::Disconnect(Disconnect { reason }) => {
                 server.shutdown().await?;
                 Err(ProxyError::Disconnected(reason))
             }
+            _ => Err(anyhow!("unknown packet").into()),
         };
     }
 }
-/*
+
 async fn switch_server(
-    client: &mut WriteHalf,
+    client: &mut Connection,
     server_address: SocketAddr,
     connection: &mut ConnectionInfo,
-) -> Result<Server<{ State::PLAY }>> {
+) -> Result<Connection> {
     let mut server = create_backend_conn(server_address, client.protocol, connection).await?;
-    let join: JoinGame = server.conn.recv_packet_dyn().await?;
+    let join: JoinGame = server.recv_packet().await?;
     let respawn = Respawn::from_joingame(&join);
     client.queue_packet(join).await?;
     client.queue_packet(respawn).await?;
@@ -329,4 +351,3 @@ async fn switch_server(
     connection.boss_bars.clear();
     Ok(server)
 }
-*/
