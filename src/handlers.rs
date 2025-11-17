@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine};
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use image::{
     error::{LimitError, LimitErrorKind},
     image_dimensions, ImageError, ImageFormat,
@@ -19,10 +19,10 @@ use crate::{
 
 pub fn status() -> &'static Vec<u8> {
     static STATUS: OnceLock<Vec<u8>> = OnceLock::new();
-    STATUS.get_or_try_init(create_status).unwrap()
+    STATUS.get_or_init(create_status)
 }
 
-pub fn create_status() -> Result<Vec<u8>> {
+pub fn create_status() -> Vec<u8> {
     let status = Status {
         version: Version {
             name: "1.19.4",
@@ -36,7 +36,7 @@ pub fn create_status() -> Result<Vec<u8>> {
         description: Motd::Component(Component::text("azz")),
         favicon: read_favicon().inspect_err(|err| error!("{}", err)).ok(),
     };
-    Ok(serde_json::to_vec(&status)?)
+    serde_json::to_vec(&status).unwrap()
 }
 
 fn read_favicon() -> Result<String> {
