@@ -1,6 +1,3 @@
-#![feature(lazy_cell)]
-#![feature(inline_const)]
-#![feature(once_cell_try)]
 use anyhow::anyhow;
 use protocol::packet::play::{BossBar, JoinGame, Respawn};
 use std::future::Future;
